@@ -103,6 +103,12 @@ Lệnh `-ScanFolder` chỉ quét INF. File trong `simulation-fixtures/` là dữ
 - Đã thử nghiệm bằng bản mới nhất (617.14) của Dartraiden và bản LOL (460.89) của HieuPC.
 - Thêm vào 2 chức năng: chọn GPU mặc định và Unlock PCIe 2.0.
 
+## Định hướng phát triển:
+- 1.7.0: Sửa lỗi VBScript vĩnh viễn.
+- 1.8.0: Tích hợp các phần mềm Unlocker và cải thiện dịch thuật.
+- 1.9.0: Tích hợp các phần mềm Driver.
+- 2.0.0: Tích hợp tất cả vào 1 phần mềm .exe duy nhất và bổ sung cập nhật dựa trên từng tab phần mềm và driver.
+
 ## Nguồn và bản quyền
 
 Đây là mã công cụ hỗ trợ quản trị driver, **không liên kết với NVIDIA, Riot Games hay Microsoft**. Không bao gồm gói driver bên thứ ba. Chưa ấn định giấy phép nguồn mở; cần xác minh quyền sử dụng mã gốc trước khi cấp giấy phép phân phối/sửa đổi.
