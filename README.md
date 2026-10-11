@@ -1,3 +1,5 @@
+Gặp lỗi và cần báo cáo sửa lỗi? [Vào đường link này sau đó nhấn vào **New Issue** để báo cáo](https://github.com/kai-inko/CMP40HX-UltimateToolkit-Indie/issues)
+
 Dựa theo bản gốc chạy trên 30HX của Lâm Đặng - https://www.facebook.com/lamdang99/ 
 
 Fork từ bản chạy 40HX của lavievn - https://github.com/lavievn/CMP40HX-DriverToggle, bản Unlock PCIe 2.0 40hx của Cyridd - https://github.com/Cyridd/cmpunlocker, và bản chọn GPU mặc định của nethe-GitHub https://github.com/nethe-GitHub/select_default_GPU
