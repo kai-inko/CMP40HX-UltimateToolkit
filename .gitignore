@@ -1,0 +1,17 @@
+# Private, machine-specific state
+cmp40hx-profiles*.json
+cmp40hx-*.log
+*.invalid-*
+*.lnk
+# Drivers and distributable binaries are intentionally excluded
+*.sys
+*.dll
+*.cat
+*.exe
+*.zip
+*.7z
+*.rar
+# Personal/payment artwork
+assets/
+*donate*
+*qr*
