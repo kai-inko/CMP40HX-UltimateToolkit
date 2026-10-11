@@ -1,4 +1,5 @@
 Gặp lỗi và cần báo cáo sửa lỗi? [Vào đường link này sau đó nhấn vào **New Issue** để báo cáo](https://github.com/kai-inko/CMP40HX-UltimateToolkit-Indie/issues)
+#
 
 Dựa theo bản gốc chạy trên 30HX của Lâm Đặng - https://www.facebook.com/lamdang99/ 
 
