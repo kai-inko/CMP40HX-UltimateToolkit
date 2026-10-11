@@ -1,0 +1,13 @@
+; SIMULATION ONLY - NOT A REAL NVIDIA DRIVER; NEVER SELECT FOR A LIVE INSTALL
+[Version]
+Signature="$Windows NT$"
+Class=Display
+Provider=%NVIDIA%
+DriverVer=03/23/2026,32.0.15.9602
+[Manufacturer]
+%NVIDIA%=NVIDIA_Devices,NTamd64
+[NVIDIA_Devices.NTamd64]
+%CMP40HX%=InstallSection,PCI\VEN_10DE&DEV_1F0B
+[Strings]
+NVIDIA="NVIDIA Simulation"
+CMP40HX="NVIDIA CMP 40HX (simulated)"

@@ -1,0 +1,13 @@
+; SIMULATION ONLY - NOT A REAL NVIDIA DRIVER; NEVER SELECT FOR A LIVE INSTALL
+[Version]
+Signature="$Windows NT$"
+Class=Display
+Provider=%NVIDIA%
+DriverVer=05/15/2020,26.21.14.4614
+[Manufacturer]
+%NVIDIA%=NVIDIA_Devices,NTamd64
+[NVIDIA_Devices.NTamd64]
+%Fake%=InstallSection,PCI\VEN_10DE&DEV_1F0B
+[Strings]
+NVIDIA="NVIDIA Simulation"
+Fake="NVIDIA 40HX SIMULATION MODEL"
