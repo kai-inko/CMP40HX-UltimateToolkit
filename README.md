@@ -9,7 +9,7 @@ Fork từ bản chạy 40HX của lavievn - https://github.com/lavievn/CMP40HX-D
 
 Công cụ Windows (PowerShell/WinForms) chuyển đổi giữa **hai gói driver NVIDIA CMP 40HX** đã được người dùng tự chuẩn bị. Chỉ hỗ trợ thiết bị có Hardware ID `PCI\VEN_10DE&DEV_1F0B`.
 
-Thêm mới tính năng và cả UI của bản Unlock PCIe 2.0, thêm cả tính năng chọn GPU mặc định
+Thêm mới tính năng và cả UI của bản Unlock PCIe 2.0, thêm cả tính năng chọn GPU mặc định.
 
 > **Cảnh báo:**
 > 
@@ -39,11 +39,11 @@ Thêm mới tính năng và cả UI của bản Unlock PCIe 2.0, thêm cả tín
 
 ## Sử dụng
 
-### Trước khi sử dụng
-- Tải toàn bộ source code và giải nén vào thư mục C:/.
-- Tạo folder tên cmpunlocker trong thư mục CMP40HX-UltimateToolkit.
-- Cho cả 3 file exe 40HXInstall, 40HXCheck và 40HXUninstall vào thư mục vừa tạo.
-- Click chuột phải vào Script Chay-CMP40HX-DriverToggle/Chay-MoPhong.vbs, Open with -> Notepad, File -> Save As -> Encoding -> ANSI - > Save.
+### Hướng dẫn tải về
+- Tải hai file driver cần thiết và giải nén.
+- Tải Toolkit: Ấn vào nút Code - > Download ZIP.
+- Giải nén toolkit sau khi đã tải về.
+- Chuyển 2 thư mục driver đã giải nén vào folder toolkit (trước folder cmpunlocker).
 
 ### Đối với tab Chuyển Driver
 
@@ -99,15 +99,19 @@ Lệnh `-ScanFolder` chỉ quét INF. File trong `simulation-fixtures/` là dữ
 - Không đưa lên GitHub các file `cmp40hx-profiles*.json`, `cmp40hx-*.log`, `*.invalid-*`, driver mod và gói cài riêng vì có thể chứa đường dẫn máy, log hoặc file không được phép phân phối.
 - **Chưa kiểm thử trực tiếp bản công khai đã lược bỏ thành phần đồ họa trên Windows/CMP 40HX.** Phải thử mô phỏng và xác nhận giao diện trước khi chuyển driver thật.
 
-## Cập nhật 10/11/2026
+## Cập nhật 12/10/2026
 - Đã thử nghiệm bằng bản mới nhất (617.14) của Dartraiden và bản LOL (460.89) của HieuPC.
 - Thêm vào 2 chức năng: chọn GPU mặc định và Unlock PCIe 2.0.
 
-## Định hướng phát triển:
-- 1.7.0: Sửa lỗi VBScript vĩnh viễn.
-- 1.8.0: Tích hợp các phần mềm Unlocker và cải thiện dịch thuật.
-- 1.9.0: Tích hợp các phần mềm Driver, có thể tích hợp thêm file .exe cài đặt 460.89 của tác giả Raincandy
-- 2.0.0: Tích hợp tất cả vào 1 phần mềm .exe duy nhất và bổ sung cập nhật dựa trên từng tab phần mềm và driver.
+## Cập nhật 12/10/2026
+- Đã thành công sửa lỗi WSH compilation error 800A0408 của VBScript.
+
+## Định hướng phát triển
+
+- 1.7.0: Sửa lỗi VBScript vĩnh viễn. (Đã hoàn thành)
+- 1.8.0: Tích hợp tải về các phần mềm Driver, tải về driver tùy chọn, sẽ thêm bản 460.89 của Raincandy nếu khả thi.
+- 1.9.0: Tích hợp các phần mềm Unlocker, cải thiện dịch thuật và hiển thị log cho GPU mặc định.
+- 2.0.0: Tích hợp tất cả vào 1 phần mềm .exe duy nhất và tự động bổ sung cập nhật dựa trên từng tab phần mềm và driver.
 
 ## Nguồn và bản quyền
 
