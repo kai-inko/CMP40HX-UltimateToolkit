@@ -96,7 +96,7 @@ Lệnh `-ScanFolder` chỉ quét INF. File trong `simulation-fixtures/` là dữ
 - Không đưa lên GitHub các file `cmp40hx-profiles*.json`, `cmp40hx-*.log`, `*.invalid-*`, driver mod và gói cài riêng vì có thể chứa đường dẫn máy, log hoặc file không được phép phân phối.
 - **Chưa kiểm thử trực tiếp bản công khai đã lược bỏ thành phần đồ họa trên Windows/CMP 40HX.** Phải thử mô phỏng và xác nhận giao diện trước khi chuyển driver thật.
 
-## Cập nhật 12/10/2026
+## Cập nhật 11/10/2026
 - Đã thử nghiệm bằng bản mới nhất (617.14) của Dartraiden và bản LOL (460.89) của HieuPC.
 - Thêm vào 2 chức năng: chọn GPU mặc định và Unlock PCIe 2.0.
 
