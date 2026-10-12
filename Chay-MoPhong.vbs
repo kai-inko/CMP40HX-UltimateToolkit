@@ -1,4 +1,4 @@
-﻿Option Explicit
+Option Explicit
 Dim shell, fso, basePath, scriptPath, command
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
