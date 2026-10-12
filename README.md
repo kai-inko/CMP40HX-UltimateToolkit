@@ -106,7 +106,7 @@ Lệnh `-ScanFolder` chỉ quét INF. File trong `simulation-fixtures/` là dữ
 ## Định hướng phát triển:
 - 1.7.0: Sửa lỗi VBScript vĩnh viễn.
 - 1.8.0: Tích hợp các phần mềm Unlocker và cải thiện dịch thuật.
-- 1.9.0: Tích hợp các phần mềm Driver.
+- 1.9.0: Tích hợp các phần mềm Driver, có thể tích hợp thêm file .exe cài đặt 460.89 của tác giả Raincandy
 - 2.0.0: Tích hợp tất cả vào 1 phần mềm .exe duy nhất và bổ sung cập nhật dựa trên từng tab phần mềm và driver.
 
 ## Nguồn và bản quyền
