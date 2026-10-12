@@ -41,17 +41,15 @@ Thêm mới tính năng và cả UI của bản Unlock PCIe 2.0, thêm cả tín
 
 ### Hướng dẫn tải về
 1. Tải hai file driver cần thiết và **giải nén** theo hướng dẫn sẵn có của từng phần mềm.
-2. Tải Toolkit: Ấn vào nút **Code - > Download ZIP**. Giải nén toolkit sau khi đã tải về vào ổ đĩa C:/
+2. Tải Toolkit: Ấn vào nút **Code - > Download ZIP**. Giải nén toolkit sau khi đã tải về vào nơi cố định (khuyến khích ổ đĩa C:/).
 3. Chuyển 2 thư mục driver đã giải nén **vào folder toolkit** (chung nơi với 2 folder *cmpunlocker* và *simulation-fixtures*).
-
+4. Chạy `Chay-CMP40HX-DriverToggle.cmd` hoặc `Chay-CMP40HX-DriverToggle.vbs`.
 ### Đối với tab Chuyển Driver
 
-1. Giải nén bộ mã ở một thư mục cố định.
-2. Chạy `Chay-CMP40HX-DriverToggle.cmd` hoặc `Chay-CMP40HX-DriverToggle.vbs`.
-3. Trong **Thiết lập driver**, chọn thư mục gói driver **Làm việc** và **Chơi game**; công cụ tự tìm INF.
-4. Kiểm tra hai hồ sơ và phiên bản nhận diện đúng trước khi thực hiện chuyển.
-5. Đóng ứng dụng dùng GPU, đánh dấu xác nhận và mới bấm nút chuyển.
-6. Nếu Windows yêu cầu, phải khởi động lại.
+1. Trong **Thiết lập driver**, chọn thư mục gói driver **Làm việc** và **Chơi game**; công cụ tự tìm INF.
+2. Kiểm tra hai hồ sơ và phiên bản nhận diện đúng trước khi thực hiện chuyển.
+3. Đóng ứng dụng dùng GPU, đánh dấu xác nhận và mới bấm nút chuyển.
+4. Nếu Windows yêu cầu, phải khởi động lại.
 
 Ví dụ từ máy kiểm thử của người dùng (không phải tên file bắt buộc):
 
