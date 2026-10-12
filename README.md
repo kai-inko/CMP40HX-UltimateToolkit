@@ -40,10 +40,9 @@ Thêm mới tính năng và cả UI của bản Unlock PCIe 2.0, thêm cả tín
 ## Sử dụng
 
 ### Hướng dẫn tải về
-- Tải hai file driver cần thiết và giải nén.
-- Tải Toolkit: Ấn vào nút Code - > Download ZIP.
-- Giải nén toolkit sau khi đã tải về.
-- Chuyển 2 thư mục driver đã giải nén vào folder toolkit (trước folder cmpunlocker).
+1. Tải hai file driver cần thiết và **giải nén** theo hướng dẫn sẵn có của từng phần mềm.
+2. Tải Toolkit: Ấn vào nút **Code - > Download ZIP**. Giải nén toolkit sau khi đã tải về vào ổ đĩa C:/
+3. Chuyển 2 thư mục driver đã giải nén **vào folder toolkit** (chung nơi với 2 folder *cmpunlocker* và *simulation-fixtures*).
 
 ### Đối với tab Chuyển Driver
 
