@@ -2019,20 +2019,20 @@ $mainTitle.Location  = New-Object Drawing.Point(24, 14)
 $mainTitle.Size      = New-Object Drawing.Size(660, 26)
 $mainTitle.Font      = New-Object Drawing.Font('Segoe UI Semibold', 13, [Drawing.FontStyle]::Bold)
 $mainTitle.ForeColor = $navy
-$mainTitle.Text      = 'Tải và chuẩn bị driver'
+$mainTitle.Text      = 'Tải và chuẩn bị Driver và unlocker'
 $tabMain.Controls.Add($mainTitle)
 
 $mainInfo = New-Object System.Windows.Forms.Label
 $mainInfo.Location  = New-Object Drawing.Point(24, 44)
 $mainInfo.Size      = New-Object Drawing.Size(660, 36)
 $mainInfo.ForeColor = $muted
-$mainInfo.Text      = 'Kiểm tra hai bộ driver. Bộ nào thiếu sẽ được tải và xử lý: Dartraiden = driver NVIDIA gốc + bản patch (ghi đè); 40HX = tải từ Google Drive rồi giải nén.'
+$mainInfo.Text      = 'Kiểm tra driver và unlocker. Mục nào thiếu sẽ được tải và xử lý: Dartraiden = driver NVIDIA gốc + bản patch (ghi đè); 40HX = tải từ Google Drive rồi giải nén; Unlocker = tải 3 tệp exe từ GitHub.'
 $tabMain.Controls.Add($mainInfo)
 
 $grpDrv = New-Object System.Windows.Forms.GroupBox
 $grpDrv.Text     = 'Trạng thái'
 $grpDrv.Location = New-Object Drawing.Point(12, 86)
-$grpDrv.Size     = New-Object Drawing.Size(696, 124)
+$grpDrv.Size     = New-Object Drawing.Size(696, 148)
 $tabMain.Controls.Add($grpDrv)
 
 $lblDart = New-Object System.Windows.Forms.Label
@@ -2047,37 +2047,37 @@ $lblFix.Size     = New-Object Drawing.Size(670, 20)
 $lblFix.Text     = 'Driver 40HX: chưa kiểm tra'
 $grpDrv.Controls.Add($lblFix)
 
+$lblUnlocker = New-Object System.Windows.Forms.Label
+$lblUnlocker.Location = New-Object Drawing.Point(14, 72)
+$lblUnlocker.Size     = New-Object Drawing.Size(670, 20)
+$lblUnlocker.Text     = 'Unlocker: chưa kiểm tra'
+$grpDrv.Controls.Add($lblUnlocker)
+
 $lblPkg = New-Object System.Windows.Forms.Label
-$lblPkg.Location = New-Object Drawing.Point(14, 82)
+$lblPkg.Location = New-Object Drawing.Point(14, 106)
 $lblPkg.Size     = New-Object Drawing.Size(110, 22)
 $lblPkg.Text     = 'Gói NVIDIA gốc:'
 $grpDrv.Controls.Add($lblPkg)
 
 $cmbPkg = New-Object System.Windows.Forms.ComboBox
 $cmbPkg.DropDownStyle = 'DropDownList'
-$cmbPkg.Location = New-Object Drawing.Point(126, 79)
+$cmbPkg.Location = New-Object Drawing.Point(126, 103)
 $cmbPkg.Size     = New-Object Drawing.Size(150, 24)
-[void]$cmbPkg.Items.Add('Notebook')
 [void]$cmbPkg.Items.Add('Desktop')
+[void]$cmbPkg.Items.Add('Notebook')
 $cmbPkg.SelectedIndex = 0
 $grpDrv.Controls.Add($cmbPkg)
 
 $chkNvenc = New-Object System.Windows.Forms.CheckBox
-$chkNvenc.Location = New-Object Drawing.Point(300, 80)
+$chkNvenc.Location = New-Object Drawing.Point(300, 104)
 $chkNvenc.Size     = New-Object Drawing.Size(380, 24)
 $chkNvenc.Text     = 'Ưu tiên bản patch NVENC-NvFBC (nếu có)'
 $chkNvenc.Checked  = $true
 $grpDrv.Controls.Add($chkNvenc)
 
-$btnDrvCheck = New-Object System.Windows.Forms.Button
-$btnDrvCheck.Location = New-Object Drawing.Point(12, 218)
-$btnDrvCheck.Size     = New-Object Drawing.Size(340, 34)
-$btnDrvCheck.Text     = 'Chỉ kiểm tra'
-$tabMain.Controls.Add($btnDrvCheck)
-
 $btnDrvPrepare = New-Object System.Windows.Forms.Button
-$btnDrvPrepare.Location  = New-Object Drawing.Point(368, 218)
-$btnDrvPrepare.Size      = New-Object Drawing.Size(340, 34)
+$btnDrvPrepare.Location  = New-Object Drawing.Point(12, 242)
+$btnDrvPrepare.Size      = New-Object Drawing.Size(696, 34)
 $btnDrvPrepare.Text      = 'Kiểm tra và tải mục còn thiếu'
 $btnDrvPrepare.BackColor = $blue
 $btnDrvPrepare.ForeColor = [Drawing.Color]::White
@@ -2086,20 +2086,20 @@ $btnDrvPrepare.FlatAppearance.BorderSize = 0
 $tabMain.Controls.Add($btnDrvPrepare)
 
 $drvProgress = New-Object System.Windows.Forms.ProgressBar
-$drvProgress.Location = New-Object Drawing.Point(12, 264)
+$drvProgress.Location = New-Object Drawing.Point(12, 288)
 $drvProgress.Size     = New-Object Drawing.Size(640, 22)
 $drvProgress.Minimum = 0; $drvProgress.Maximum = 100
 $tabMain.Controls.Add($drvProgress)
 
 $drvPct = New-Object System.Windows.Forms.Label
-$drvPct.Location  = New-Object Drawing.Point(658, 265)
+$drvPct.Location  = New-Object Drawing.Point(658, 289)
 $drvPct.Size      = New-Object Drawing.Size(50, 22)
 $drvPct.TextAlign = 'MiddleRight'
 $drvPct.Text      = '0%'
 $tabMain.Controls.Add($drvPct)
 
 $mainStatus = New-Object System.Windows.Forms.Label
-$mainStatus.Location  = New-Object Drawing.Point(12, 292)
+$mainStatus.Location  = New-Object Drawing.Point(12, 316)
 $mainStatus.Size      = New-Object Drawing.Size(696, 22)
 $mainStatus.ForeColor = $muted
 $mainStatus.Text      = '● Sẵn sàng'
@@ -2107,8 +2107,8 @@ $tabMain.Controls.Add($mainStatus)
 
 $grpDrvLog = New-Object System.Windows.Forms.GroupBox
 $grpDrvLog.Text     = 'Log (trực tiếp)'
-$grpDrvLog.Location = New-Object Drawing.Point(12, 320)
-$grpDrvLog.Size     = New-Object Drawing.Size(696, 310)
+$grpDrvLog.Location = New-Object Drawing.Point(12, 344)
+$grpDrvLog.Size     = New-Object Drawing.Size(696, 286)
 $tabMain.Controls.Add($grpDrvLog)
 
 $drvLog = New-Object System.Windows.Forms.TextBox
@@ -2119,7 +2119,7 @@ $drvLog.WordWrap   = $false
 $drvLog.Font       = New-Object Drawing.Font('Consolas', 8.5)
 $drvLog.BackColor  = [Drawing.Color]::White
 $drvLog.Location   = New-Object Drawing.Point(10, 20)
-$drvLog.Size       = New-Object Drawing.Size(676, 280)
+$drvLog.Size       = New-Object Drawing.Size(676, 256)
 $grpDrvLog.Controls.Add($drvLog)
 
 # ---------- helpers: log / progress ----------
@@ -2141,7 +2141,7 @@ function Set-DrvProgress {
 
 function Set-DrvBusy {
     param([bool]$Busy)
-    foreach ($c in @($btnDrvCheck, $btnDrvPrepare, $cmbPkg, $chkNvenc, $btnUpdate)) { $c.Enabled = -not $Busy }
+    foreach ($c in @($btnDrvPrepare, $cmbPkg, $chkNvenc, $btnUpdate)) { $c.Enabled = -not $Busy }
 }
 
 # ---------- helpers: HTTP ----------
@@ -2327,7 +2327,26 @@ function Get-DrvStatus {
     $dart = $null; $fix = $null
     foreach ($c in $dartCands) { $r = Test-DrvFolder $c; if ($r) { $dart = $r; break } }
     foreach ($c in $fixCands)  { $r = Test-DrvFolder $c; if ($r) { $fix  = $r; break } }
-    return [pscustomobject]@{ Dart = $dart; Fix = $fix }
+    return [pscustomobject]@{ Dart = $dart; Fix = $fix; Unlocker = (Get-UnlockerStatus) }
+}
+
+function Update-TabEnabledState {
+    param(
+        $Status,
+        [string]$DesktopProfile = ''
+    )
+    if (-not $Status) { $Status = Get-DrvStatus }
+
+    # Returns true if at least one component (Dartraiden driver, 40HX fix driver, or Unlocker exes) is downloaded
+    $hasDownloadedItems = [bool]($Status.Dart -or $Status.Fix -or $Status.Unlocker.Ok)
+
+    # Enable or disable (grey out) the remaining 3 tabs
+    if ($tabDriver)  { $tabDriver.Enabled  = $hasDownloadedItems }
+    if ($tabDefault) { $tabDefault.Enabled = $hasDownloadedItems }
+    if ($tabNew)     { 
+        # Tab 4 requires at least one downloaded item AND must not be in Game Mode
+        $tabNew.Enabled = $hasDownloadedItems -and ($DesktopProfile -ne 'Game') 
+    }
 }
 
 function Show-DrvStatus {
@@ -2335,11 +2354,30 @@ function Show-DrvStatus {
     if ($St.Dart) {
         $lblDart.Text = "✔ Dartraiden: $([IO.Path]::GetFileName($St.Dart.Folder))  (DriverVer $($St.Dart.Version))"
         $lblDart.ForeColor = $green
-    } else { $lblDart.Text = '✖ Dartraiden: chưa có (hoặc chưa được patch)'; $lblDart.ForeColor = [Drawing.Color]::Firebrick }
+    } else { 
+        $lblDart.Text = '✖ Dartraiden: chưa có (hoặc chưa được patch)'
+        $lblDart.ForeColor = [Drawing.Color]::Firebrick 
+    }
+    
     if ($St.Fix) {
         $lblFix.Text = "✔ 40HX: $([IO.Path]::GetFileName($St.Fix.Folder))  (DriverVer $($St.Fix.Version))"
         $lblFix.ForeColor = $green
-    } else { $lblFix.Text = '✖ 40HX: chưa có'; $lblFix.ForeColor = [Drawing.Color]::Firebrick }
+    } else { 
+        $lblFix.Text = '✖ 40HX: chưa có'
+        $lblFix.ForeColor = [Drawing.Color]::Firebrick 
+    }
+    
+    $u = $St.Unlocker
+    if ($u.Ok) {
+        $tagText = if ($u.Tag) { " ($($u.Tag))" } else { '' }
+        $lblUnlocker.Text = "✔ Unlocker: đủ 3 tệp exe$tagText"
+        $lblUnlocker.ForeColor = $green
+    } else {
+        $lblUnlocker.Text = "✖ Unlocker: thiếu $($u.Missing -join ', ')"
+        $lblUnlocker.ForeColor = [Drawing.Color]::Firebrick  # Fixed: changed from $green to Firebrick red
+    }
+
+    Update-TabEnabledState -Status $St
 }
 
 # ---------- Dartraiden: tìm bản patch mới nhất ----------
@@ -2512,22 +2550,22 @@ function Install-DartraidenDriver {
     $nvUrl = Resolve-NvidiaUrl -Ver $rel.Tag -PreferredKind $kind
     $nvFile = [IO.Path]::GetFileName($nvUrl)
     Add-DrvLog "  Gói NVIDIA: $nvUrl"
-    $nvExe = Join-Path $drvDownloadDir $nvFile
-    Save-DrvUrl -Url $nvUrl -Path $nvExe -Label $nvFile
-
+    $nvExe  = Join-Path $drvDownloadDir $nvFile
     $target = Join-Path $script:AppDirectory ([IO.Path]::GetFileNameWithoutExtension($nvFile))
     $setup = $null
     if (Test-Path -LiteralPath $target) {
         $setup = Get-ChildItem -LiteralPath $target -Filter 'setup.exe' -File -Recurse -Depth 1 -ErrorAction SilentlyContinue | Select-Object -First 1
     }
     if ($setup) {
-        Add-DrvLog "  = Thư mục driver gốc đã có, dùng lại: $target"
+        Add-DrvLog "  = Thư mục driver gốc đã có, dùng lại (không tải lại): $target"
     } else {
         if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+        Save-DrvUrl -Url $nvUrl -Path $nvExe -Label $nvFile
         Set-DrvProgress 50 "● Đang giải nén $nvFile..."
         Add-DrvLog "  Giải nén vào: $target"
         Expand-DrvArchive -Archive $nvExe -Dest $target
         $setup = Get-ChildItem -LiteralPath $target -Filter 'setup.exe' -File -Recurse -Depth 1 -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($setup) { Remove-DrvDownload $nvExe }
     }
     if (-not $setup) { throw "Giải nén xong nhưng không thấy setup.exe trong $target." }
     $driverDir = $setup.DirectoryName
@@ -2542,6 +2580,7 @@ function Install-DartraidenDriver {
         Set-DrvProgress 80 '● Đang ghi đè tệp patch vào thư mục driver...'
         $res = Merge-PatchIntoDriver -PatchDir $tmp -DriverDir $driverDir
         Add-DrvLog "  Xong: ghi đè $($res.Overwritten), thêm mới $($res.Added)."
+        Remove-DrvDownload $patchFile
     }
     finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue } }
 
@@ -2575,6 +2614,7 @@ function Install-FixDriver {
         Set-DrvProgress 85 '● Đang chép vào thư mục driver 40HX...'
         $res = Copy-OverwriteTree -From $root -To $drvFixFolder
         Add-DrvLog "  Xong: ghi đè $($res.Overwritten), thêm mới $($res.Added) -> $drvFixFolder"
+        Remove-DrvDownload $archive
     }
     finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue } }
 
@@ -2601,7 +2641,9 @@ function Set-DrvProfileConfig {
 function Invoke-DrvPrepare {
     $st = Get-DrvStatus
     Show-DrvStatus $st
-    if ($st.Dart -and $st.Fix) { Add-DrvLog 'Cả hai bộ driver đã có sẵn, không cần tải.'; Set-DrvProgress 100; return }
+    if ($st.Dart -and $st.Fix -and $st.Unlocker.Ok) {
+        Add-DrvLog 'Cả ba mục đã có sẵn, không cần tải.'; Set-DrvProgress 100; return
+    }
 
     $errors = 0
     if (-not $st.Dart) {
@@ -2611,6 +2653,10 @@ function Invoke-DrvPrepare {
     if (-not $st.Fix) {
         try { $r = Install-FixDriver; if ($r) { Set-DrvProfileConfig -Profile Game -Resolved $r } else { $errors++ } }
         catch { $errors++; Add-DrvLog "  [!] LỖI 40HX: $($_.Exception.Message)" }
+    }
+    if (-not $st.Unlocker.Ok) {
+        try { Update-UnlockerExe }
+        catch { $errors++; Add-DrvLog "  [!] LỖI Unlocker: $($_.Exception.Message)" }
     }
 
     Show-DrvStatus (Get-DrvStatus)
@@ -2624,16 +2670,6 @@ function Invoke-DrvPrepare {
 }
 
 # ---------- buttons ----------
-$btnDrvCheck.Add_Click({
-    Set-DrvBusy $true
-    try {
-        Add-DrvLog '== Kiểm tra driver =='
-        Show-DrvStatus (Get-DrvStatus)
-        $mainStatus.Text = '● Đã kiểm tra'; $mainStatus.ForeColor = $muted
-    }
-    catch { Add-DrvLog "  [!] LỖI: $($_.Exception.Message)" }
-    finally { Set-DrvBusy $false }
-})
 
 $btnDrvPrepare.Add_Click({
     Set-DrvBusy $true
@@ -2660,6 +2696,23 @@ function Get-UpdateState {
 function Save-UpdateState {
     param($State)
     $State | ConvertTo-Json | Set-Content -LiteralPath $drvStatePath -Encoding UTF8
+}
+
+function Get-UnlockerStatus {
+    $missing = @($updUnlockerExes | Where-Object { -not (Test-Path -LiteralPath (Join-Path $updUnlockerDir $_) -PathType Leaf) })
+    $tag = [string](Get-Prop (Get-UpdateState) 'UnlockerTag' '')
+    return [pscustomobject]@{ Ok = ($missing.Count -eq 0); Missing = $missing; Tag = $tag }
+}
+
+function Remove-DrvDownload {
+    param([string]$Path)
+    try {
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            Remove-Item -LiteralPath $Path -Force
+            Add-DrvLog "  Đã xoá tệp tải về: $([IO.Path]::GetFileName($Path))"
+        }
+    }
+    catch { Add-DrvLog "  [!] Không xoá được $Path : $($_.Exception.Message)" }
 }
 
 function ConvertTo-TagVersion {
@@ -2762,6 +2815,7 @@ function Update-UnlockerExe {
     finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue } }
 
     if ($updated -ne $updUnlockerExes.Count) { throw "Chỉ cập nhật được $updated/$($updUnlockerExes.Count) tệp exe." }
+    Remove-DrvDownload $zip
     if (Test-Path -LiteralPath $backup) { Add-DrvLog "  Bản cũ được sao lưu ở: $backup" }
     $state | Add-Member -NotePropertyName UnlockerTag -NotePropertyValue $rel.Tag -Force
     Save-UpdateState -State $state
@@ -2798,7 +2852,16 @@ Show-DrvStatus (Get-DrvStatus)
 # ================= END Tab: NEW FEATURE =================
 
 $tabs.TabPages.AddRange(@($tabMain, $tabDriver, $tabDefault, $tabNew))
-$tabs.SelectedTab = $tabMain      # or $tabDriver if you want to keep opening there
+$tabs.SelectedTab = $tabMain
+
+# Prevent switching to any tab that is currently greyed out / disabled
+$tabs.Add_Selecting({
+    param($sender, $e)
+    if (-not $e.TabPage.Enabled) {
+        $e.Cancel = $true
+    }
+})
+
 $form.Controls.Add($tabs)
 # ================= END TABS =================
 
@@ -2877,9 +2940,8 @@ $form.Controls.Add($tabs)
                 $toggle.Text = 'THIẾT LẬP DRIVER TRƯỚC KHI CHUYỂN'
                 $toggle.BackColor = $muted
             }
-
             $profileLabel.Text = $currentProfile
-            if ($tabNew) { $tabNew.Enabled = ($desktopProfile -ne 'Game') }
+            Update-TabEnabledState -DesktopProfile $desktopProfile
             if ($profileKnown) {
                 try { Update-DesktopShortcut -Profile $desktopProfile -CreateIfMissing }
                 catch { Write-AppLog "Không cập nhật được shortcut Desktop/Start Menu: $($_.Exception.Message)" }
