@@ -28,7 +28,7 @@ function Write-AppLog {
 
 function Update-DesktopShortcut {
     param(
-        [ValidateSet('Work', 'Game')][string]$Profile,
+        [ValidateSet('Work', 'Game')][string]$DriverProfile,
         [switch]$CreateIfMissing
     )
     if (-not (Test-Path -LiteralPath $script:LauncherPath -PathType Leaf)) {
@@ -51,7 +51,7 @@ function Update-DesktopShortcut {
                 $shortcut.TargetPath = Join-Path $env:WINDIR 'System32\wscript.exe'
                 $shortcut.Arguments = '"{0}"' -f $script:LauncherPath
                 $shortcut.WorkingDirectory = $script:AppDirectory
-                $shortcut.Description = if ($Profile -eq 'Game') { 'CMP 40HX - chế độ chơi game' } else { 'CMP 40HX - chế độ làm việc' }
+                $shortcut.Description = if ($DriverProfile -eq 'Game') { 'CMP 40HX - chế độ chơi game' } else { 'CMP 40HX - chế độ làm việc' }
                 $shortcut.Save()
             }
             finally {
@@ -60,7 +60,7 @@ function Update-DesktopShortcut {
         }
     }
     finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) }
-    Write-AppLog "Đã cập nhật shortcut Desktop và Start Menu: $Profile"
+    Write-AppLog "Đã cập nhật shortcut Desktop và Start Menu: $DriverProfile"
 }
 
 function Test-IsAdministrator {
@@ -235,15 +235,15 @@ function Resolve-DriverFolder {
 }
 
 function Assert-DriverProfileFolder {
-    param($Config, [ValidateSet('Work', 'Game')][string]$Profile)
+    param($Config, [ValidateSet('Work', 'Game')][string]$DriverProfile)
 
-    $folder = if ($Profile -eq 'Work') { [string]$Config.WorkDirectory } else { [string]$Config.GameDirectory }
-    $savedInf = if ($Profile -eq 'Work') { [string]$Config.WorkInf } else { [string]$Config.GameInf }
-    $savedVer = if ($Profile -eq 'Work') { [string]$Config.WorkVersion } else { [string]$Config.GameVersion }
-    if (-not $folder) { throw "Chưa chọn thư mục driver $Profile. Mở Thiết lập driver để chọn." }
+    $folder = if ($DriverProfile -eq 'Work') { [string]$Config.WorkDirectory } else { [string]$Config.GameDirectory }
+    $savedInf = if ($DriverProfile -eq 'Work') { [string]$Config.WorkInf } else { [string]$Config.GameInf }
+    $savedVer = if ($DriverProfile -eq 'Work') { [string]$Config.WorkVersion } else { [string]$Config.GameVersion }
+    if (-not $folder) { throw "Chưa chọn thư mục driver $DriverProfile. Mở Thiết lập driver để chọn." }
     $found = Resolve-DriverFolder -FolderPath $folder
     if ($found.InfPath -ine $savedInf -or $found.Version -ne $savedVer) {
-        throw "Thư mục driver $Profile đã thay đổi so với khi lưu cấu hình. Mở Thiết lập driver, kiểm tra và lưu lại trước khi chuyển."
+        throw "Thư mục driver $DriverProfile đã thay đổi so với khi lưu cấu hình. Mở Thiết lập driver, kiểm tra và lưu lại trước khi chuyển."
     }
     return $found
 }
@@ -1056,9 +1056,10 @@ $tabNew.Text = 'Quản lý Unlocker'
 $tabNew.UseVisualStyleBackColor = $false
 $tabNew.BackColor = $background
 
-$unlockerDir  = Join-Path $script:AppDirectory 'cmpunlocker'
-
-
+$script:UnlockerDir    = Join-Path $script:AppDirectory 'cmpunlocker'
+$script:InstallerExe   = Join-Path $script:UnlockerDir '40HXInstaller.exe'
+$script:CheckerExe     = Join-Path $script:UnlockerDir '40HXCheck.exe'
+$script:UninstallerExe = Join-Path $script:UnlockerDir '40HXUninstaller.exe'
 
 # ---------- helpers ----------
 function Add-UnlockLog {
@@ -1066,11 +1067,83 @@ function Add-UnlockLog {
     $logBox.AppendText(("{0}{1}" -f $Text, [Environment]::NewLine))
 }
 
-$installerExe = Join-Path $unlockerDir '40HXInstaller.exe'
+# ================= TRANSLATION DICTIONARY =================
+$script:UnlockerTranslations = [ordered]@{
+    # Headers & Installation Detection
+    'CMP 40HX Windows Unlock Installer'                      = 'Bộ cài đặt Mở khóa CMP 40HX Windows'
+    'Tensor unlock (EFI V70 + GSP enable)'                   = 'Mở khóa Tensor (EFI V70 + Bật GSP)'
+    'Detected an existing 40HX unlock install'               = 'Phát hiện bản mở khóa 40HX đã được cài đặt từ trước'
+    'User confirmed; continuing with the overwrite install.' = 'Người dùng đã xác nhận; tiếp tục cài đặt ghi đè.'
+    
+    # Pre-checks & Power Settings
+    'Detecting GPU ... CMP 40HX found'                        = 'Phát hiện GPU ... Đã tìm thấy CMP 40HX'
+    'Secure Boot check ... off/unavailable (OK)'             = 'Kiểm tra Secure Boot ... đã TẮT / không khả dụng (OK)'
+    'Test signing ... off (OK)'                              = 'Test signing ... đã TẮT (OK)'
+    'needs no test signing at all'                           = 'không cần bật test signing'
+    'Power settings (Fast Startup + PCIe link power saving)' = 'Thiết lập nguồn điện (Khởi động nhanh + Tiết kiệm điện PCIe)'
+    'Fast Startup: already off (OK)'                         = 'Khởi động nhanh: đã tắt sẵn (OK)'
+    'PCIe ASPM: already off (OK)'                            = 'PCIe ASPM: đã tắt sẵn (OK)'
+    
+    # Driver Preparation & Defender Exclusions
+    'Preparing Gen2 BYOVD drivers'                           = 'Đang chuẩn bị driver Gen2 BYOVD'
+    'Copied ThrottleStop.sys'                                = 'Đã sao chép ThrottleStop.sys'
+    'Copied WinRing0x64.sys'                                 = 'Đã sao chép WinRing0x64.sys'
+    'Service ThrottleStop registered'                        = 'Đã đăng ký dịch vụ ThrottleStop'
+    'Service WinRing0_1_2_0 registered'                      = 'Đã đăng ký dịch vụ WinRing0'
+    'loaded by the SYSTEM task after logon'                  = 'nhiệm vụ SYSTEM sẽ nạp sau khi đăng nhập'
+    'Gen2 driver files are ready'                            = 'Tệp driver Gen2 đã sẵn sàng'
+    'Defender exclusions (prevent accidental deletion)'      = 'Danh sách loại trừ Defender (tránh bị xóa nhầm)'
+    'Added ThrottleStop/WinRing0 driver files'               = 'Đã thêm driver ThrottleStop/WinRing0 vào danh sách loại trừ Defender'
+    
+    # EFI Boot Deployment & ReBAR
+    'Deploying the unlock EFI and firmware boot entry'       = 'Đang triển khai EFI mở khóa và mục khởi động firmware'
+    'Deploying the unlock EFI to the system EFI partition'   = 'Đang chép EFI mở khóa vào phân vùng EFI hệ thống'
+    'Setting the firmware boot entry'                        = 'Đang thiết lập mục khởi động firmware'
+    'Boot entry already exists; skipping'                    = 'Mục khởi động đã tồn tại; bỏ qua'
+    'Boot entry set on top and verified'                     = 'Đã đưa mục khởi động 40HX Unlock lên ưu tiên 1'
+    'enabled — ''norebar'' cleared from the boot entry'      = 'đã bật — đã xóa ''norebar'' khỏi mục khởi động'
+    'the unlock EFI resizes BAR1 to 8 GB at boot'            = 'EFI mở khóa sẽ đổi kích thước BAR1 thành 8 GB khi khởi động'
+    'Registering Gen2 logon autostart'                       = 'Đang đăng ký tự khởi động Gen2 khi đăng nhập'
+    
+    # Post-Install Guidance Logs
+    'Next reboot: the firmware will automatically run 40HX Unlock' = 'Lần khởi động tới: firmware sẽ tự chạy 40HX Unlock'
+    'boot into Windows'                                      = 'khởi động vào Windows'
+    'no more black screen / dropped driver after unlock'     = 'không còn bị màn hình đen / ngắt driver sau mở khóa'
+    'After logon: Gen2 unlocks automatically'                = 'Sau khi đăng nhập: PCIe Gen2 sẽ tự động mở khóa'
+    'PCIe is not retrained during install'                   = 'PCIe chưa huấn luyện lại trong lúc cài (sẽ chạy khi đăng nhập)'
+    'Verify after reboot: double-click 40HXCheck.exe'        = 'Xác minh sau khi khởi động lại: chạy 40HXCheck.exe'
+    'If test signing was just enabled'                       = 'Nếu vừa bật test signing'
+    'Installation complete!'                                 = 'Cài đặt hoàn tất!'
+    'Success'                                                = 'Thành công'
+    'Done'                                                   = 'Hoàn tất'
+
+    'Checking GPU hardware state'            = 'Đang kiểm tra trạng thái phần cứng GPU'
+    'Unlock succeeded: Tensor at full power' = 'Mở khóa THÀNH CÔNG: Tensor Core hoạt động tối đa công suất'
+    'SS0 register value'                     = 'Giá trị thanh ghi SS0'
+    'Tensor status'                          = 'Trạng thái Tensor Core'
+    'GSP firmware status'                    = 'Trạng thái Firmware GSP'
+    'PCIe link speed'                        = 'Tốc độ liên kết PCIe'
+    'BAR1 size (ReBAR)'                      = 'Kích thước BAR1 (ReBAR)'
+    'Driver status'                          = 'Trạng thái nạp Driver'
+    'Checking ReBAR configuration'           = 'Đang kiểm tra cấu hình ReBAR'
+    'Checking GSP enablement'                = 'Đang kiểm tra việc bật GSP'
+}
+# ==========================================================
+
+function ConvertTo-TranslatedLog {
+    param([string]$Line)
+    $text = $Line
+    foreach ($key in $script:UnlockerTranslations.Keys) {
+        if ($text -match [regex]::Escape($key)) {
+            $text = $text -replace [regex]::Escape($key), $script:UnlockerTranslations[$key]
+        }
+    }
+    return $text
+}
+# ==========================================================
 
 function Invoke-Installer {
-    # $Arguments: mode switch first (e.g. '-rebar'); empty = full installation
-    param([string[]]$Arguments = @(), [string]$ExePath = $installerExe)
+    param([string[]]$Arguments = @(), [string]$ExePath = $script:InstallerExe)
     if (-not (Test-Path -LiteralPath $ExePath -PathType Leaf)) {
         Add-UnlockLog "[!] Không tìm thấy: $ExePath"
         return
@@ -1091,7 +1164,7 @@ function Invoke-Installer {
             $buf = New-Object byte[] ($len - $state.Offset)
             $n = $fs.Read($buf, 0, $buf.Length)
             if ($n -le 0) { return }
-            # only consume whole lines so multi-byte UTF-8 characters are never split
+            
             $take = $n
             if (-not $Final) {
                 $nl = [Array]::LastIndexOf($buf, [byte]10, $n - 1)
@@ -1100,7 +1173,13 @@ function Invoke-Installer {
             }
             $state.Offset += $take
             $text = [Text.Encoding]::UTF8.GetString($buf, 0, $take)
-            foreach ($l in ($text -split '\r?\n')) { if ($l.Trim()) { Add-UnlockLog $l } }
+            
+            foreach ($l in ($text -split '\r?\n')) { 
+                if ($l.Trim()) { 
+                    # Translates log lines in real-time before displaying
+                    Add-UnlockLog (ConvertTo-TranslatedLog -Line $l)
+                } 
+            }
         }
         catch { }
         finally { if ($fs) { $fs.Dispose() } }
@@ -1109,7 +1188,7 @@ function Invoke-Installer {
     try {
         Write-AppLog "Installer: $($all -join ' ')"
         $p = Start-Process -FilePath $ExePath -ArgumentList $all `
-             -WorkingDirectory $unlockerDir -WindowStyle Hidden -PassThru
+             -WorkingDirectory $script:UnlockerDir -WindowStyle Hidden -PassThru
         while (-not $p.HasExited) {
             & $pump $false
             [System.Windows.Forms.Application]::DoEvents()
@@ -1117,12 +1196,9 @@ function Invoke-Installer {
         }
         & $pump $true
     }
-    catch { Add-UnlockLog "[!] Error: $($_.Exception.Message)" }
+    catch { Add-UnlockLog "[!] Lỗi: $($_.Exception.Message)" }
     finally { Remove-Item -LiteralPath $log -ErrorAction SilentlyContinue }
 }
-
-$checkerExe = Join-Path $unlockerDir '40HXCheck.exe'
-$uninstallerExe = Join-Path $unlockerDir '40HXUninstaller.exe'
 
 # StrictMode-safe property read: the JSON omits fields that are zero/unknown
 function Get-Prop {
@@ -1133,84 +1209,304 @@ function Get-Prop {
     return $Default
 }
 
+function Show-DiagnoseReportPopup {
+    $diagnosePath = Join-Path $env:LOCALAPPDATA '40HXUnlock\logs\diagnose.txt'
+
+    if (-not (Test-Path -LiteralPath $diagnosePath -PathType Leaf)) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Không tìm thấy tệp nhật ký chẩn đoán tại:`r`n$diagnosePath`r`n`r`nHãy chạy 40HXCheck.exe trước để khởi tạo báo cáo.",
+            'CMP 40HX - Báo cáo Chẩn đoán',
+            'OK',
+            'Warning'
+        ) | Out-Null
+        return
+    }
+
+    $rawText = Get-Content -LiteralPath $diagnosePath -Raw -Encoding UTF8
+
+    if ($rawText -match '(?s)(.*?)(?=---\s*Known limitations)') {
+        $cleanText = $Matches[1].Trim()
+    } else {
+        $cleanText = $rawText.Trim()
+    }
+
+    $lines = $cleanText -split '\r?\n'
+    $translatedLines = @()
+
+    foreach ($line in $lines) {
+        $t = $line
+
+        $t = $t -replace 'CMP 40HX Unlock Diagnostics', 'BÁO CÁO CHẨN ĐOÁN MỞ KHÓA CMP 40HX'
+        $t = $t -replace 'Unlock status\s*:\s*full compute \+ Gen2 reached', 'Trạng thái Mở khóa : ĐÃ MỞ KHÓA HOÀN TOÀN (Tensor + PCIe Gen2)'
+        $t = $t -replace 'Unlock status\s*:\s*full compute,\s*Gen2 not reached', 'Trạng thái Mở khóa : ĐÃ MỞ KHÓA TENSOR (Chưa đạt PCIe Gen2)'
+        $t = $t -replace 'Unlock status\s*:\s*not unlocked \(SS0 locked\)', 'Trạng thái Mở khóa : ✗ CHƯA MỞ KHÓA (SS0 Bị khóa)'
+        
+        $t = $t -replace 'Compute\s*:\s*✓ full', 'Tính toán Tensor   : ✓ TỐI ĐA CORES'
+        $t = $t -replace 'Compute\s*:\s*✗ locked.*', 'Tính toán Tensor   : ✗ BỊ KHÓA (SS0=0x00000000 SS1=0x00000000)'
+        $t = $t -replace 'PCIe\s*:\s*Gen2 \(5\.0 GT/s\) ×8', 'Tốc độ PCIe       : ✓ Gen2 (5.0 GT/s) ×8'
+        $t = $t -replace 'PCIe\s*:\s*Gen1 \(2\.5 GT/s\) ×8', 'Tốc độ PCIe       : ✗ Gen1 (2.5 GT/s) ×8 (Tốc độ mặc định)'
+        $t = $t -replace 'ReBAR\s*:\s*✓ enabled \(BAR1 8 GB\)', 'Bộ nhớ ReBAR      : ✓ ĐÃ BẬT (BAR1 8 GB)'
+        $t = $t -replace 'ReBAR\s*:\s*✗ not enabled.*', 'Bộ nhớ ReBAR      : ✗ CHƯA BẬT (BAR1 64 MB — Mở khóa ReBAR chưa có hiệu lực)'
+        
+        $t = $t -replace 'GPU 40HX:\s*✓', 'Nhận diện 40HX: ✓'
+        $t = $t -replace 'Secure Boot:\s*off \(OK\)', 'Secure Boot: TẮT (OK)'
+        $t = $t -replace 'GSP:\s*✓ enabled', 'GSP Firmware: ✓ Đã bật'
+        $t = $t -replace 'GSP:\s*✗ not enabled.*', 'GSP Firmware: ✗ Chưa bật'
+        $t = $t -replace 'Test signing:\s*off\s*\(not needed since v2\.5, recommend disabling\)', 'Test Signing: TẮT (Không cần thiết)'
+        $t = $t -replace 'Unlock EFI:\s*no Authenticode signature \(unsigned image\)', 'EFI Mở khóa : File EFI chưa ký chữ ký số (Bình thường)'
+        $t = $t -replace 'Unlock EFI:\s*not deployed on the ESP.*', 'EFI Mở khóa : Chưa triển khai trên ESP (Chưa mở khóa Tensor)'
+        $t = $t -replace 'Boot mode:\s*UEFI \(OK\)', 'Chế độ Boot : UEFI (OK)'
+        $t = $t -replace 'Fast Startup:\s*off \(OK\)', 'Fast Startup: TẮT (OK)'
+        $t = $t -replace 'PCIe ASPM:\s*off \(OK\)', 'PCIe ASPM   : TẮT (OK)'
+        $t = $t -replace 'Gen2 drivers:\s*ThrottleStop ✓ available\s*WinRing0 ✓ available', 'Driver Gen2 : ThrottleStop ✓ Có sẵn | WinRing0 ✓ Có sẵn'
+        
+        $t = $t -replace 'Gen2 task:\s*registered \(Ready, last result: 0\)', 'Tác vụ Gen2 : Đã đăng ký (Sẵn sàng, mã thoát lần cuối: 0)'
+        $t = $t -replace 'Gen2 task:\s*not registered.*', 'Tác vụ Gen2 : ✗ Chưa đăng ký tự khởi động'
+        $t = $t -replace 'Note: history from the last Gen2 task exists.*', 'Ghi chú: Lịch sử tác vụ Gen2 lần trước:'
+        $t = $t -replace '❌ Gen2 not run:\s*ThrottleStop driver not running.*', '❌ Tác vụ Gen2 không chạy: Driver ThrottleStop chưa khởi chạy (Hãy chạy lại bộ cài với quyền Administrator)'
+        $t = $t -replace 'Running as:\s*', 'Quyền thực thi: '
+
+        $t = $t -replace '>>> Unlock succeeded:\s*full Tensor \+ Gen2 ×8', '>>> KẾT LUẬN: MỞ KHÓA THÀNH CÔNG (TENSOR CORE TỐI ĐA + PCIE GEN2 X8)'
+        $t = $t -replace '>>> Full compute;\s*Gen2 not reached.*', '>>> KẾT LUẬN: TENSOR ĐÃ MỞ KHÓA — CHƯA ĐẠT PCIE GEN2 (HÃY BẤM [CHẠY GEN2 NGAY] TRÊN TOOL)'
+        $t = $t -replace '>>> Not unlocked this boot \(SS0 locked\)', '>>> KẾT LUẬN: CHƯA MỞ KHÓA TRONG LẦN BOOT NÀY (SS0 BỊ KHÓA)'
+        $t = $t -replace '\[EFI log\] The unlock EFI is not deployed.*', '  [Nhật ký EFI] File EFI mở khóa chưa được triển khai hoặc đã bị gỡ bỏ.'
+        $t = $t -replace 'Compute staying locked is expected.*', '  Tính toán Tensor bị khóa là bình thường. Hãy chạy Cài đặt đầy đủ để mở khóa.'
+
+        $t = $t -replace 'Suggestions:', 'Khuyên dùng / Khắc phục:'
+        $t = $t -replace '· GSP not enabled:.*', '· GSP chưa bật: Tích chọn [Bật GSP] và bấm [Cài đặt các mục đã chọn].'
+        $t = $t -replace '· EFI compute unlock not in effect.*', '· EFI mở khóa chưa triển khai: Tích chọn [Tạo EFI + mục khởi động firmware] rồi khởi động lại máy.'
+        $t = $t -replace '· The Gen2 scheduled task is not registered:.*', '· Tác vụ Gen2 chưa đăng ký: Bấm [Chạy Gen2 và cài tự khởi động] để đăng ký tự chạy khi đăng nhập.'
+        $t = $t -replace 'Gen2 target rate \(TLS\) is still Gen1:.*', '· Tốc độ PCIe mục tiêu (TLS) vẫn ở Gen1: Hãy bấm [Chạy Gen2 ngay bây giờ] tại mục ② trên phần mềm hoặc chạy lại Cài đặt đầy đủ.'
+
+        $t = $t -replace '========== Environment ==========', '========== MÔI TRƯỜNG HỆ THỐNG =========='
+        $t = $t -replace 'OS\s*:', 'Hệ điều hành  :'
+        $t = $t -replace 'Administrator\s*:\s*yes', 'Quyền Admin   : CÓ'
+        $t = $t -replace 'Tool version\s*:', 'Phiên bản Tool:'
+
+        $t = $t -replace '========== Drivers ==========', '========== TRẠNG THÁI DRIVER GEN2 =========='
+        $t = $t -replace 'service DEMAND/running', 'Dịch vụ: Đang chạy'
+        $t = $t -replace 'service DISABLED ⚠ disabled \(Gen2 cannot start; re-run the installer to fix\)', '⚠ DỊCH VỤ BỊ TẮT (Gen2 không thể khởi chạy; hãy chạy lại Cài đặt đầy đủ để sửa)'
+        $t = $t -replace 'no backup source \(never installed\)', 'Chưa có nguồn sao lưu (Chưa từng cài)'
+        $t = $t -replace 'backup source OK \(deployed before\)', 'Nguồn sao lưu: Tốt'
+        $t = $t -replace '↑ this diagnostic loaded it TEMPORARILY.*', '↑ Dịch vụ driver này chỉ được nạp TẠM THỜI để đo phần cứng'
+
+        $t = $t -replace '========== Raw PCIe registers \(40HX\) ==========', '========== THANH GHI PCIE PHẦN CỨNG =========='
+        $t = $t -replace 'MaxLinkSpeed=Gen1\(2\.5GT/s\)', 'Tốc độ tối đa=Gen1 (2.5 GT/s)'
+        $t = $t -replace 'MaxLinkSpeed=Gen2\(5GT/s\)', 'Tốc độ tối đa=Gen2 (5.0 GT/s)'
+        $t = $t -replace 'current=Gen1\(2\.5GT/s\) width=x8', 'Trạng thái hiện tại=Gen1 (2.5 GT/s) x8'
+        $t = $t -replace 'current=Gen2\(5GT/s\) width=x8', 'Trạng thái hiện tại=Gen2 (5.0 GT/s) x8'
+        $t = $t -replace 'target=Gen1\(2\.5GT/s\)', 'Mục tiêu=Gen1 (2.5 GT/s)'
+        $t = $t -replace 'target=Gen2\(5GT/s\)', 'Mục tiêu=Gen2 (5.0 GT/s)'
+        $t = $t -replace 'family=0x16 TU10x \(40HX OK\)', 'Kiến trúc TU10x (CMP 40HX Chuẩn)'
+
+        $translatedLines += $t
+    }
+
+    $finalReportText = $translatedLines -join [Environment]::NewLine
+
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = 'Chi tiết Chẩn đoán Mở khóa CMP 40HX'
+    $form.Size = New-Object Drawing.Size(740, 580)
+    $form.StartPosition = 'CenterScreen'
+    $form.MinimizeBox = $false
+    $form.MaximizeBox = $true
+    $form.BackColor = [Drawing.Color]::FromArgb(241, 245, 249)
+
+    $txtBox = New-Object System.Windows.Forms.TextBox
+    $txtBox.Dock = 'Fill'
+    $txtBox.Multiline = $true
+    $txtBox.ReadOnly = $true
+    $txtBox.ScrollBars = 'Both'
+    $txtBox.WordWrap = $false
+    $txtBox.Font = New-Object Drawing.Font('Consolas', 9.5)
+    $txtBox.BackColor = [Drawing.Color]::White
+    $txtBox.ForeColor = [Drawing.Color]::FromArgb(15, 23, 42)
+    $txtBox.Text = $finalReportText
+    $form.Controls.Add($txtBox)
+
+    [void]$form.ShowDialog()
+}
+
+function Interpret-DiagnoseTxt {
+    $diagnosePath = Join-Path $env:LOCALAPPDATA '40HXUnlock\logs\diagnose.txt'
+    
+    if (-not (Test-Path -LiteralPath $diagnosePath -PathType Leaf)) {
+        Add-UnlockLog '[!] Không tìm thấy tệp diagnose.txt để phân tích.'
+        return
+    }
+
+    Add-UnlockLog '================ PHÂN TÍCH DIAGNOSE.TXT (TIẾNG VIỆT) ================'
+    $rawLines = Get-Content -LiteralPath $diagnosePath -Encoding UTF8
+
+    foreach ($line in $rawLines) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $translatedLine = ConvertTo-TranslatedLog -Line $line
+        Add-UnlockLog "  • $translatedLine"
+    }
+
+    Add-UnlockLog '----------------------------------------------------------------------'
+    Add-UnlockLog '● TỔNG QUAN TRẠNG THÁI MỞ KHÓA:'
+
+    $rawText = $rawLines -join "`n"
+
+    if ($rawText -match 'SS0[=\s:]*(0x[0-9A-Fa-f]+|\d+)') {
+        $val =$Matches[1]
+        $isUnlocked =$false
+        if ($val -like '0x*') {
+            if ($val -ieq '0x88888888') { $isUnlocked =$true }
+        } else {
+            if ([long]$val -eq 2290649224) { $isUnlocked =$true }
+        }
+
+        if ($isUnlocked) {
+            Add-UnlockLog '  [✔] Tensor Core : Đã MỞ KHÓA TỐI ĐA (SS0 = 0x88888888)'
+        } else {
+            Add-UnlockLog "  [!] Tensor Core : Chưa mở khóa hoàn toàn (SS0 = $val)"
+        }
+    }
+
+    if ($rawText -match '(?i)GSP.*(enabled|active|1)') {
+        Add-UnlockLog '  [✔] GSP Firmware : Đã BẬT (EnableGpuFirmware = 1)'
+    }
+
+    if ($rawText -match '(?i)BAR1.*(8\s*GB|8192\s*MB)') {
+        Add-UnlockLog '  [✔] ReBAR (BAR1): Đã mở khóa 8 GB BAR1 thành công'
+    }
+
+    if ($rawText -match '(?i)PCIe.*(Gen2|5\.0\s*GT/s)') {
+        Add-UnlockLog '  [✔] PCIe Speed  : Đã đạt tốc độ Gen2 (5.0 GT/s)'
+    }
+
+    Add-UnlockLog '================================================----------------------'
+}
+
 function Invoke-Checker {
-    if (-not (Test-Path -LiteralPath $checkerExe -PathType Leaf)) {
-        Add-UnlockLog "[!] Không tìm thấy: $checkerExe"
+    if (-not (Test-Path -LiteralPath $script:CheckerExe -PathType Leaf)) {
+        Add-UnlockLog "[!] Không tìm thấy: $($script:CheckerExe)"
         return $null
     }
-    $out = Join-Path $env:TEMP ('40HX_chk_{0}.json' -f [guid]::NewGuid().ToString('N'))
-    $err = "$out.err"
+
+    $outFile = Join-Path $env:TEMP ('40HX_chk_{0}.json' -f [guid]::NewGuid().ToString('N'))
+    $errFile = "$outFile.err"
+
     try {
-        $p = Start-Process -FilePath $checkerExe -ArgumentList '-json' `
-             -WorkingDirectory $unlockerDir -WindowStyle Hidden -PassThru `
-             -RedirectStandardOutput $out -RedirectStandardError $err
-        while (-not $p.HasExited) {
+        Add-UnlockLog '== Đang kiểm tra phần cứng 40HX... =='
+        $p = Start-Process -FilePath $script:CheckerExe -ArgumentList '-json' `
+                -WorkingDirectory $script:UnlockerDir -WindowStyle Hidden -PassThru `
+                -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while (-not $p.HasExited -and $sw.Elapsed.TotalSeconds -lt 60) {
             [System.Windows.Forms.Application]::DoEvents()
             Start-Sleep -Milliseconds 100
         }
-        $raw = ''
-        if (Test-Path -LiteralPath $out) { $raw = Get-Content -LiteralPath $out -Raw -Encoding UTF8 }
-        if ([string]::IsNullOrWhiteSpace($raw)) {
-            $e = ''
-            if (Test-Path -LiteralPath $err) { $e = (Get-Content -LiteralPath $err -Raw -Encoding UTF8) }
-            Add-UnlockLog "[!] 40HXCheck không trả về dữ liệu (mã thoát $($p.ExitCode)). $e"
+        if (-not $p.HasExited) {
+            try { $p.Kill() } catch { }
+            Add-UnlockLog '[!] 40HXCheck không phản hồi sau 60 giây, đã dừng.'
             return $null
         }
-        $report = $raw | ConvertFrom-Json
-        $report | Add-Member -NotePropertyName ExitCode -NotePropertyValue $p.ExitCode -Force
-        return $report
-    }
-    catch {
-        Add-UnlockLog "[!]  Kiểm tra thất bại: $($_.Exception.Message)"
+        $p.WaitForExit()
+
+        $raw = if (Test-Path -LiteralPath $outFile) { Get-Content -LiteralPath $outFile -Raw -Encoding UTF8 } else { '' }
+        if ($raw -match '\{[\s\S]*\}') {
+            $report = $Matches[0] | ConvertFrom-Json
+            $report | Add-Member -NotePropertyName ExitCode -NotePropertyValue $p.ExitCode -Force
+            return $report
+        }
+        Add-UnlockLog '[!] Không đọc được kết quả từ 40HXCheck.'
         return $null
     }
-    finally { Remove-Item -LiteralPath $out, $err -ErrorAction SilentlyContinue }
+    catch {
+        Add-UnlockLog "[!] Kiểm tra thất bại: $($_.Exception.Message)"
+        return $null
+    }
+    finally {
+        Remove-Item -LiteralPath $outFile, $errFile -ErrorAction SilentlyContinue
+    }
 }
 
 function Show-CheckReport {
     param($r)
-    $fw = $r.firmware; $gpu = $r.gpu; $cmp = $r.compute; $pci = $r.pcie; $rb = $r.rebar
-
-    $bdf = Get-Prop $gpu 'bdf' '-'
-    Add-UnlockLog ("[GPU]      Có CMP 40HX: {0} | GSP: {1} | BDF: {2}" -f $gpu.cmp40hx_present, $gpu.gsp, $bdf)
-    Add-UnlockLog ("[Boot]     {0} | Secure Boot: {1} | Test signing: {2} | Khởi động nhanh: {3}" -f $fw.boot_mode, $fw.secure_boot, $fw.test_signing, $fw.fast_startup)
-    Add-UnlockLog ("[EFI]      EFI mở khoá: {0}" -f $fw.unlock_efi_state)
-
-    if ($cmp.measured) {
-        $ss0 = '0x{0:X8}' -f [uint32](Get-Prop $cmp 'ss0' 0)
-        $ss1 = '0x{0:X8}' -f [uint32](Get-Prop $cmp 'ss1' 0)
-        Add-UnlockLog ("[Tính toán] đã mở khoá: {0} (SS0={1}, SS1={2})" -f $cmp.unlocked, $ss0, $ss1)
-    } else {
-        Add-UnlockLog '[Tính toán] chưa đo được (driver chưa chạy)'
-    }
-
-    if ($pci.measured) {
-        Add-UnlockLog ("[PCIe]     Gen{0} x{1} | mục tiêu Gen{2} | ASPM: {3}" -f (Get-Prop $pci 'link_speed_gen' 0), (Get-Prop $pci 'link_width' 0), (Get-Prop $pci 'target_speed_gen' 0), $pci.aspm)
-    } else {
-        Add-UnlockLog ("[PCIe]     chưa đo được | ASPM: {0}" -f $pci.aspm)
-    }
-
-    if ($rb.measured) {
-        Add-UnlockLog ("[ReBAR]    đã bật: {0} | BAR1: {1} MiB" -f $rb.enabled, (Get-Prop $rb 'bar1_mib' 0))
-    } else {
-        Add-UnlockLog '[ReBAR]    chưa đo được'
-    }
 
     $text = @{
-        unlock_ok                       = 'Mở khoá OK - đã mở khoá tính toán và đạt PCIe Gen2.'
-        compute_only                    = 'Đã mở khoá tính toán, nhưng PCIe vẫn dưới Gen2.'
         not_unlocked                    = 'Chưa mở khoá.'
         driver_not_loaded               = 'Driver chưa nạp - không đo được gì.'
         legacy_boot_no_efi              = 'Khởi động Legacy: EFI mở khoá không thể chạy. Hãy chuyển sang UEFI.'
         secure_boot_blocks_unsigned_efi = 'Secure Boot đang chặn EFI mở khoá chưa ký. Hãy tắt trong BIOS.'
         inconclusive                    = 'Kết quả chưa rõ ràng.'
     }
-    $status = [string]$r.verdict.status
-    $msg = if ($text.ContainsKey($status)) { $text[$status] } else { $status }
-    Add-UnlockLog ("[Kết luận] {0} (mã thoát {1})" -f $msg, $r.ExitCode)
-    Add-UnlockLog '[i] Báo cáo đầy đủ: chạy 40HXCheck.exe không kèm -json (ghi vào %LOCALAPPDATA%\40HXUnlock\logs\diagnose.txt).'
+    $status = [string](Get-Prop (Get-Prop $r 'verdict') 'status' '')
+    $msg = if ($text.ContainsKey($status)) { $text[$status] } elseif ($status) { $status } else { 'Không rõ' }
+
+    $gsp   = [string](Get-Prop (Get-Prop $r 'gpu') 'gsp' '')
+    $efi   = [string](Get-Prop (Get-Prop $r 'firmware') 'unlock_efi_state' '')
+    $rb    = Get-Prop $r 'rebar'
+    $aspm  = [string](Get-Prop (Get-Prop $r 'pcie') 'aspm' '')
+
+    $rbText = if (-not (Get-Prop $rb 'measured' $false)) { 'chưa đo' }
+              elseif (Get-Prop $rb 'enabled' $false) { 'ĐÃ BẬT' } else { 'CHƯA BẬT' }
+    $gspText = if ($gsp -eq 'enabled') { 'ĐÃ BẬT' } elseif ($gsp) { 'CHƯA BẬT' } else { 'chưa rõ' }
+    $efiText = if ($efi -eq 'not_deployed') { 'chưa triển khai' } elseif ($efi) { 'đã triển khai' } else { 'chưa rõ' }
+    $aspmText = if ($aspm -eq 'on') { 'đang BẬT (nên tắt)' } elseif ($aspm) { 'đã tắt' } else { 'chưa rõ' }
+
+    Add-UnlockLog "[Kết luận] $msg (mã thoát $($r.ExitCode))"
+    Add-UnlockLog "  • GSP: $gspText   • ReBAR: $rbText   • EFI mở khoá: $efiText   • ASPM: $aspmText"
 
     $lblState.Text = $msg
+}
+
+function Show-DiagnoseLogPopup {
+    $diagnosePath = Join-Path $env:LOCALAPPDATA '40HXUnlock\logs\diagnose.txt'
+
+    if (-not (Test-Path -LiteralPath $diagnosePath -PathType Leaf)) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Không tìm thấy tệp nhật ký chẩn đoán tại:`r`n$diagnosePath`r`n`r`nHãy chạy 40HXCheck.exe trước để khởi tạo tệp báo cáo.",
+            'CMP 40HX - Nhật ký Chẩn đoán',
+            'OK',
+            'Warning'
+        ) | Out-Null
+        return
+    }
+
+    try {
+        $rawLines = Get-Content -LiteralPath $diagnosePath -Encoding UTF8
+        $translatedLines = @()
+        foreach ($line in $rawLines) {
+            $translatedLines += (ConvertTo-TranslatedLog -Line $line)
+        }
+        $translatedText = $translatedLines -join [Environment]::NewLine
+
+        $dialog = New-Object System.Windows.Forms.Form
+        $dialog.Text = 'Nhật ký chẩn đoán chi tiết (diagnose.txt)'
+        $dialog.Size = New-Object Drawing.Size(680, 520)
+        $dialog.StartPosition = 'CenterParent'
+        $dialog.MinimizeBox = $false
+        $dialog.MaximizeBox = $true
+
+        $txtBox = New-Object System.Windows.Forms.TextBox
+        $txtBox.Dock = 'Fill'
+        $txtBox.Multiline = $true
+        $txtBox.ReadOnly = $true
+        $txtBox.ScrollBars = 'Both'
+        $txtBox.WordWrap = $false
+        $txtBox.Font = New-Object Drawing.Font('Consolas', 9)
+        $txtBox.BackColor = [Drawing.Color]::White
+        $txtBox.Text = $translatedText
+        $dialog.Controls.Add($txtBox)
+
+        [void]$dialog.ShowDialog()
+    }
+    catch {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Không thể đọc tệp diagnose.txt: $($_.Exception.Message)",
+            'CMP 40HX',
+            'OK',
+            'Error'
+        ) | Out-Null
+    }
 }
 
 function Set-ComponentPreselect {
@@ -1412,6 +1708,29 @@ $btnInstallSel.Add_Click({
 })
 $grp1.Controls.Add($btnInstallSel)
 
+function Show-VietnameseInstallSummary {
+    $msg = @"
+☑ Hoàn tất cài đặt! Tiến trình mở khóa sẽ tự động chạy sau khi khởi động lại.
+
+Lưu ý khi khởi động lại:
+  • Màn hình đen / log chữ 40HX trong khoảng 10-30 giây là bình thường (đang mở khóa)
+  • Sau khi mở khóa, máy sẽ tự động vào Windows
+
+Nếu máy vào thẳng Windows sau khi khởi động lại (không thấy chạy mở khóa), hãy vào BIOS (Phím Del/F2):
+  1. Tắt Secure Boot (bắt buộc đối với tệp EFI mở khóa chưa ký)
+  2. Tắt Fast Boot (Khởi động nhanh)
+  3. Chọn '40HX Unlock' làm mục khởi động ưu tiên 1
+     (nếu danh sách chỉ hiện Windows Boot Manager, hãy tắt CSM và kiểm tra lại)
+
+Sau khi khởi động lại vào hệ thống:
+  • Kiểm tra bằng cách bấm nút "Chạy 40HXCheck.exe" trên phần mềm — nếu báo:
+    'Unlock succeeded: Tensor at full power (SS0=0x88888888)' là đã hoàn tất
+  • Nếu vừa bật Test Signing: hãy khởi động lại thêm 1 lần nữa để driver có thể nạp
+  • Sau khi đăng nhập, PCIe Gen2 sẽ tự động mở khóa chạy ẩn
+"@
+    [System.Windows.Forms.MessageBox]::Show($msg, 'CMP 40HX - Hoàn tất cài đặt', 'OK', 'Information') | Out-Null
+}
+
 $btnFull = New-Object System.Windows.Forms.Button
 $btnFull.Text = 'Cài đặt toàn bộ'
 $btnFull.Location = New-Object Drawing.Point(352, 194)
@@ -1420,8 +1739,12 @@ $btnFull.Add_Click({
     & $setBusy $true
     try {
         Add-UnlockLog '== Cài đặt đầy đủ =='
-        Invoke-Installer
+        # Truyền tham số -y để 40HXInstaller.exe không hiện popup tiếng Anh mặc định
+        Invoke-Installer @('-y')
         Add-UnlockLog '== Hoàn tất. Khởi động lại để thay đổi GSP / EFI có hiệu lực. =='
+        
+        # Hiển thị popup tiếng Việt đã được dịch chuẩn
+        Show-VietnameseInstallSummary
     }
     finally { & $setBusy $false }
 })
@@ -1466,34 +1789,39 @@ $chkStage2.Size = New-Object Drawing.Size(600, 24)
 $chkStage2.Checked = $false
 $grp2.Controls.Add($chkStage2)
 
+# Label 1: "Số lần thử lại:" (expanded width from 80 to 110)
 $lblRetry = New-Object System.Windows.Forms.Label
 $lblRetry.Text = 'Số lần thử lại:'
-$lblRetry.Location = New-Object Drawing.Point(14, 130)
-$lblRetry.Size = New-Object Drawing.Size(80, 22)
+$lblRetry.Location = New-Object Drawing.Point(14, 129)
+$lblRetry.Size = New-Object Drawing.Size(110, 24)
 $grp2.Controls.Add($lblRetry)
 
+# Spinner 1: Retry Count (reduced width from 150 to 65 for numbers 0..12)
 $numRetry = New-Object System.Windows.Forms.NumericUpDown
-$numRetry.Location = New-Object Drawing.Point(100, 127)
-$numRetry.Size = New-Object Drawing.Size(150, 24)
+$numRetry.Location = New-Object Drawing.Point(125, 126)
+$numRetry.Size = New-Object Drawing.Size(65, 24)
 $numRetry.Minimum = 0; $numRetry.Maximum = 12; $numRetry.Value = 3
 $grp2.Controls.Add($numRetry)
 
+# Label 2: "/ khoảng cách:" (expanded width from 70 to 110)
 $lblInterval = New-Object System.Windows.Forms.Label
 $lblInterval.Text = '/ khoảng cách:'
-$lblInterval.Location = New-Object Drawing.Point(270, 130)
-$lblInterval.Size = New-Object Drawing.Size(70, 22)
+$lblInterval.Location = New-Object Drawing.Point(205, 129)
+$lblInterval.Size = New-Object Drawing.Size(110, 24)
 $grp2.Controls.Add($lblInterval)
 
+# Spinner 2: Retry Interval (reduced width from 150 to 70 for numbers 1..240)
 $numInterval = New-Object System.Windows.Forms.NumericUpDown
-$numInterval.Location = New-Object Drawing.Point(345, 127)
-$numInterval.Size = New-Object Drawing.Size(150, 24)
+$numInterval.Location = New-Object Drawing.Point(320, 126)
+$numInterval.Size = New-Object Drawing.Size(70, 24)
 $numInterval.Minimum = 1; $numInterval.Maximum = 240; $numInterval.Value = 1
 $grp2.Controls.Add($numInterval)
 
+# Label 3: "phút"
 $lblMin = New-Object System.Windows.Forms.Label
 $lblMin.Text = 'phút'
-$lblMin.Location = New-Object Drawing.Point(505, 130)
-$lblMin.Size = New-Object Drawing.Size(70, 22)
+$lblMin.Location = New-Object Drawing.Point(395, 129)
+$lblMin.Size = New-Object Drawing.Size(50, 24)
 $grp2.Controls.Add($lblMin)
 
 $btnSavePolicy = New-Object System.Windows.Forms.Button
@@ -1515,6 +1843,7 @@ $btnRunInstall.Size = New-Object Drawing.Size(250, 28)
 $grp2.Controls.Add($btnRunInstall)
 
 # ---------- Extra tools row ----------
+# Nút 1: Chạy 40HXCheck.exe
 $btnCheck = New-Object System.Windows.Forms.Button
 $btnCheck.Text = 'Chạy 40HXCheck.exe'
 $btnCheck.Location = New-Object Drawing.Point(12, 446)
@@ -1526,15 +1855,15 @@ $btnCheck.FlatAppearance.BorderSize = 0
 $btnCheck.Add_Click({
     & $setBusy $true
     try {
-        Add-UnlockLog '== 40HXCheck =='
-        $lblState.Text = 'Đang kiểm tra...'
+        $lblState.Text = 'Đang kiểm tra phần cứng...'
         $r = Invoke-Checker
         if ($r) {
             Show-CheckReport $r
             Set-ComponentPreselect $r
         } else {
-            $lblState.Text = 'Kiểm tra thất bại - xem nhật ký.'
+            $lblState.Text = 'Hoàn tất kiểm tra — xem log hoạt động.'
         }
+        Show-DiagnoseReportPopup
     }
     finally { & $setBusy $false }
 })
@@ -1562,7 +1891,7 @@ $btnUninstall.Add_Click({
     & $setBusy $true
     try {
         Add-UnlockLog '== Gỡ cài đặt =='
-        Invoke-Installer -ExePath $uninstallerExe
+        Invoke-Installer -ExePath $script:UninstallerExe
         Add-UnlockLog '== Gỡ cài đặt xong. Nên khởi động lại máy. =='
 
         try {
@@ -1605,7 +1934,12 @@ Add-UnlockLog 'Quản lý Unlocker đã khởi động (quyền administrator).'
 Import-UnlockPolicy
 
 # ---------- button actions ----------
-$setBusy = { param($busy) foreach ($b in @($btnInstallSel,$btnFull,$btnSavePolicy,$btnRunNow,$btnRunInstall,$btnCheck,$btnUninstall)) { $b.Enabled = -not $busy } }
+$setBusy = { 
+    param($busy) 
+    foreach ($b in @($btnInstallSel, $btnFull, $btnSavePolicy, $btnRunNow, $btnRunInstall, $btnCheck, $btnUninstall)) { 
+        if ($b) { $b.Enabled = -not $busy } 
+    } 
+}
 
 $btnSavePolicy.Add_Click({ [void](Save-UnlockPolicy) })
 
@@ -1646,7 +1980,6 @@ $tabDefault.BackColor = $background
 
 # ---------- helpers (dựa theo select_default_GPU của nethe-GitHub, viết lại bằng PowerShell) ----------
 
-$glCompatPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\OpenGLDrivers\MSOGL'
 $dxPath       = 'HKCU:\Software\Microsoft\DirectX'
 
 function Get-RegProp {
@@ -2075,15 +2408,27 @@ $chkNvenc.Text     = 'Ưu tiên bản patch NVENC-NvFBC (nếu có)'
 $chkNvenc.Checked  = $true
 $grpDrv.Controls.Add($chkNvenc)
 
+# Button 1: Download All Missing Items
 $btnDrvPrepare = New-Object System.Windows.Forms.Button
 $btnDrvPrepare.Location  = New-Object Drawing.Point(12, 242)
-$btnDrvPrepare.Size      = New-Object Drawing.Size(696, 34)
-$btnDrvPrepare.Text      = 'Kiểm tra và tải mục còn thiếu'
+$btnDrvPrepare.Size      = New-Object Drawing.Size(450, 34)
+$btnDrvPrepare.Text      = 'Tải toàn bộ mục còn thiếu'
 $btnDrvPrepare.BackColor = $blue
 $btnDrvPrepare.ForeColor = [Drawing.Color]::White
 $btnDrvPrepare.FlatStyle = 'Flat'
 $btnDrvPrepare.FlatAppearance.BorderSize = 0
 $tabMain.Controls.Add($btnDrvPrepare)
+
+# Button 2: Download Only Unlocker
+$btnOnlyUnlocker = New-Object System.Windows.Forms.Button
+$btnOnlyUnlocker.Location  = New-Object Drawing.Point(472, 242)
+$btnOnlyUnlocker.Size      = New-Object Drawing.Size(236, 34)
+$btnOnlyUnlocker.Text      = 'Chỉ tải Unlocker'
+$btnOnlyUnlocker.BackColor = $green
+$btnOnlyUnlocker.ForeColor = [Drawing.Color]::White
+$btnOnlyUnlocker.FlatStyle = 'Flat'
+$btnOnlyUnlocker.FlatAppearance.BorderSize = 0
+$tabMain.Controls.Add($btnOnlyUnlocker)
 
 $drvProgress = New-Object System.Windows.Forms.ProgressBar
 $drvProgress.Location = New-Object Drawing.Point(12, 288)
@@ -2141,7 +2486,9 @@ function Set-DrvProgress {
 
 function Set-DrvBusy {
     param([bool]$Busy)
-    foreach ($c in @($btnDrvPrepare, $cmbPkg, $chkNvenc, $btnUpdate)) { $c.Enabled = -not $Busy }
+    foreach ($c in @($btnDrvPrepare, $btnOnlyUnlocker, $cmbPkg, $chkNvenc, $btnUpdate)) { 
+        if ($c) { $c.Enabled = -not $Busy } 
+    }
 }
 
 # ---------- helpers: HTTP ----------
@@ -2337,15 +2684,17 @@ function Update-TabEnabledState {
     )
     if (-not $Status) { $Status = Get-DrvStatus }
 
-    # Returns true if at least one component (Dartraiden driver, 40HX fix driver, or Unlocker exes) is downloaded
-    $hasDownloadedItems = [bool]($Status.Dart -or $Status.Fix -or $Status.Unlocker.Ok)
+    # Separate driver presence from unlocker presence
+    $hasDrivers  = [bool]($Status.Dart -or $Status.Fix)
+    $hasUnlocker = [bool]($Status.Unlocker.Ok)
 
-    # Enable or disable (grey out) the remaining 3 tabs
-    if ($tabDriver)  { $tabDriver.Enabled  = $hasDownloadedItems }
-    if ($tabDefault) { $tabDefault.Enabled = $hasDownloadedItems }
+    # Tabs 2 & 3 require display drivers
+    if ($tabDriver)  { $tabDriver.Enabled  = $hasDrivers }
+    if ($tabDefault) { $tabDefault.Enabled = $hasDrivers }
+
+    # Tab 4 ONLY requires Unlocker exes (and not being in Game Mode)
     if ($tabNew)     { 
-        # Tab 4 requires at least one downloaded item AND must not be in Game Mode
-        $tabNew.Enabled = $hasDownloadedItems -and ($DesktopProfile -ne 'Game') 
+        $tabNew.Enabled = $hasUnlocker -and ($DesktopProfile -ne 'Game') 
     }
 }
 
@@ -2629,43 +2978,96 @@ function Install-FixDriver {
 
 # ---------- gán vào Thiết lập driver (chỉ khi mục đó đang trống/không hợp lệ) ----------
 function Set-DrvProfileConfig {
-    param([ValidateSet('Work', 'Game')][string]$Profile, $Resolved)
-    $cur = if ($Profile -eq 'Work') { [string]$script:Config.WorkDirectory } else { [string]$script:Config.GameDirectory }
-    if ($cur -and (Test-DrvFolder $cur)) { return }      # đang có cấu hình tốt, không đụng tới
-    if ($Profile -eq 'Work') { $script:Config.WorkDirectory = $Resolved.Folder; $script:Config.WorkInf = $Resolved.InfPath }
-    else                     { $script:Config.GameDirectory = $Resolved.Folder; $script:Config.GameInf = $Resolved.InfPath }
+    param([ValidateSet('Work', 'Game')][string]$DriverProfile, $Resolved)
+    $cur = if ($DriverProfile -eq 'Work') { [string]$script:Config.WorkDirectory } else { [string]$script:Config.GameDirectory }
+    if ($cur -and (Test-DrvFolder $cur)) { return }
+    if ($DriverProfile -eq 'Work') { $script:Config.WorkDirectory = $Resolved.Folder; $script:Config.WorkInf = $Resolved.InfPath }
+    else                           { $script:Config.GameDirectory = $Resolved.Folder; $script:Config.GameInf = $Resolved.InfPath }
     Save-Config -Config $script:Config
-    Add-DrvLog "  Đã gán vào Thiết lập driver ($Profile)."
+    Add-DrvLog "  Đã gán vào Thiết lập driver ($DriverProfile)."
 }
 
 function Invoke-DrvPrepare {
+    Add-DrvLog '=== Tải toàn bộ mục còn thiếu (lấy bản mới nhất từ repository) ==='
     $st = Get-DrvStatus
     Show-DrvStatus $st
+
     if ($st.Dart -and $st.Fix -and $st.Unlocker.Ok) {
-        Add-DrvLog 'Cả ba mục đã có sẵn, không cần tải.'; Set-DrvProgress 100; return
+        Add-DrvLog 'Cả ba mục đã có sẵn, không cần tải.'
+        Set-DrvProgress 100
+        $mainStatus.Text = '● Cả ba mục đã có sẵn'
+        $mainStatus.ForeColor = $green
+        return
     }
 
     $errors = 0
+
+    # 1. Fetch the latest Dartraiden release tag from GitHub repo if missing
     if (-not $st.Dart) {
-        try { $r = Install-DartraidenDriver; if ($r) { Set-DrvProfileConfig -Profile Work -Resolved $r } else { $errors++ } }
-        catch { $errors++; Add-DrvLog "  [!] LỖI Dartraiden: $($_.Exception.Message)" }
-    }
-    if (-not $st.Fix) {
-        try { $r = Install-FixDriver; if ($r) { Set-DrvProfileConfig -Profile Game -Resolved $r } else { $errors++ } }
-        catch { $errors++; Add-DrvLog "  [!] LỖI 40HX: $($_.Exception.Message)" }
-    }
-    if (-not $st.Unlocker.Ok) {
-        try { Update-UnlockerExe }
-        catch { $errors++; Add-DrvLog "  [!] LỖI Unlocker: $($_.Exception.Message)" }
+        Add-DrvLog '-> Đang truy vấn bản patch Dartraiden mới nhất từ GitHub repository...'
+        try { 
+            $r = Install-DartraidenDriver 
+            if ($r) { 
+                Set-DrvProfileConfig -DriverProfile Work -Resolved $r 
+            } else { 
+                $errors++ 
+            } 
+        }
+        catch { 
+            $errors++
+            Add-DrvLog "  [!] LỖI Dartraiden: $($_.Exception.Message)" 
+        }
+    } else {
+        Add-DrvLog '✔ Driver Dartraiden đã có sẵn.'
     }
 
-    Show-DrvStatus (Get-DrvStatus)
-    if (Get-Command Refresh-UiState -ErrorAction SilentlyContinue) { try { Refresh-UiState -KeepStatus } catch { } }
+    # 2. Fetch the latest 40HX fix driver package if missing
+    if (-not $st.Fix) {
+        Add-DrvLog '-> Đang tải driver 40HX mới nhất...'
+        try { 
+            $r = Install-FixDriver 
+            if ($r) { 
+                Set-DrvProfileConfig -DriverProfile Game -Resolved $r 
+            } else { 
+                $errors++ 
+            } 
+        }
+        catch { 
+            $errors++
+            Add-DrvLog "  [!] LỖI 40HX: $($_.Exception.Message)" 
+        }
+    } else {
+        Add-DrvLog '✔ Driver 40HX đã có sẵn.'
+    }
+
+    # 3. Fetch the latest Unlocker release binaries from GitHub repo if missing
+    if (-not $st.Unlocker.Ok) {
+        Add-DrvLog '-> Đang truy vấn bản Unlocker mới nhất từ GitHub repository...'
+        try { 
+            Update-UnlockerExe 
+        }
+        catch { 
+            $errors++
+            Add-DrvLog "  [!] LỖI Unlocker: $($_.Exception.Message)" 
+        }
+    } else {
+        Add-DrvLog '✔ Unlocker binaries đã có sẵn.'
+    }
+
+    # Refresh status and enable UI tabs upon completion
+    $stFinal = Get-DrvStatus
+    Show-DrvStatus $stFinal
+    if (Get-Command Refresh-UiState -ErrorAction SilentlyContinue) { 
+        try { Refresh-UiState -KeepStatus } catch { } 
+    }
+
     if ($errors -eq 0) {
         Set-DrvProgress 100
-        $mainStatus.Text = '● Hoàn tất'; $mainStatus.ForeColor = $green
+        $mainStatus.Text = '● Hoàn tất tải các mục còn thiếu'
+        $mainStatus.ForeColor = $green
     } else {
-        $mainStatus.Text = "● Xong nhưng có $errors lỗi - xem log"; $mainStatus.ForeColor = [Drawing.Color]::Firebrick
+        $mainStatus.Text = "● Xong nhưng có $errors lỗi - xem log"
+        $mainStatus.ForeColor = [Drawing.Color]::Firebrick
     }
 }
 
@@ -2823,16 +3225,54 @@ function Update-UnlockerExe {
 }
 
 function Invoke-LatestUpdate {
-    Add-DrvLog '=== Tải về bản mới nhất ==='
+    Add-DrvLog '=== Tải về bản mới nhất (chỉ cập nhật mục đã có) ==='
     $errors = 0
-    try { Update-DartraidenIfNewer } catch { $errors++; Add-DrvLog "  [!] LỖI Dartraiden: $($_.Exception.Message)" }
-    try { Update-UnlockerExe }       catch { $errors++; Add-DrvLog "  [!] LỖI Unlocker: $($_.Exception.Message)" }
-    Show-DrvStatus (Get-DrvStatus)
-    if ($errors -eq 0) {
-        Set-DrvProgress 100
-        $mainStatus.Text = '● Đã kiểm tra và cập nhật xong'; $mainStatus.ForeColor = $green
+    $st = Get-DrvStatus
+
+    # Track if anything was actually checked
+    $anythingChecked = $false
+
+    # 1. Update Dartraiden driver ONLY if it is already downloaded/patched
+    if ($st.Dart -or (Get-LocalPatchedVersion)) {
+        $anythingChecked = $true
+        try { 
+            Update-DartraidenIfNewer 
+        } 
+        catch { 
+            $errors++
+            Add-DrvLog "  [!] LỖI Dartraiden: $($_.Exception.Message)" 
+        }
     } else {
-        $mainStatus.Text = "● Xong nhưng có $errors lỗi - xem log"; $mainStatus.ForeColor = [Drawing.Color]::Firebrick
+        Add-DrvLog '  - Bỏ qua Dartraiden: chưa từng tải trước đây.'
+    }
+
+    # 2. Update Unlocker ONLY if all 3 executables are already downloaded
+    if ($st.Unlocker.Ok) {
+        $anythingChecked = $true
+        try { 
+            Update-UnlockerExe 
+        } 
+        catch { 
+            $errors++
+            Add-DrvLog "  [!] LỖI Unlocker: $($_.Exception.Message)" 
+        }
+    } else {
+        Add-DrvLog '  - Bỏ qua Unlocker: chưa từng tải trước đây.'
+    }
+
+    Show-DrvStatus (Get-DrvStatus)
+
+    if (-not $anythingChecked) {
+        Set-DrvProgress 0
+        $mainStatus.Text = '● Chưa có mục nào được tải để cập nhật'
+        $mainStatus.ForeColor = $muted
+    } elseif ($errors -eq 0) {
+        Set-DrvProgress 100
+        $mainStatus.Text = '● Đã kiểm tra và cập nhật xong'
+        $mainStatus.ForeColor = $green
+    } else {
+        $mainStatus.Text = "● Xong nhưng có $errors lỗi - xem log"
+        $mainStatus.ForeColor = [Drawing.Color]::Firebrick
     }
 }
 
@@ -2847,6 +3287,24 @@ $btnUpdate.Add_Click({
     finally { Set-DrvBusy $false }
 })
 
+$btnOnlyUnlocker.Add_Click({
+    Set-DrvBusy $true
+    try {
+        Add-DrvLog '=== Tải chỉ Unlocker ==='
+        Update-UnlockerExe
+        Show-DrvStatus (Get-DrvStatus)
+        Set-DrvProgress 100
+        $mainStatus.Text = '● Đã tải xong Unlocker'
+        $mainStatus.ForeColor = $green
+    }
+    catch {
+        Add-DrvLog "  [!] LỖI Unlocker: $($_.Exception.Message)"
+        $mainStatus.Text = "● Lỗi: $($_.Exception.Message)"
+        $mainStatus.ForeColor = [Drawing.Color]::Firebrick
+    }
+    finally { Set-DrvBusy $false }
+})
+
 Add-DrvLog 'Tab Tải driver đã sẵn sàng.'
 Show-DrvStatus (Get-DrvStatus)
 # ================= END Tab: NEW FEATURE =================
@@ -2856,7 +3314,7 @@ $tabs.SelectedTab = $tabMain
 
 # Prevent switching to any tab that is currently greyed out / disabled
 $tabs.Add_Selecting({
-    param($sender, $e)
+    param($src, $e)
     if (-not $e.TabPage.Enabled) {
         $e.Cancel = $true
     }
@@ -2883,92 +3341,94 @@ $form.Controls.Add($tabs)
         [System.Windows.Forms.Application]::DoEvents()
     }
 
-    function Animate-Progress {
-        param(
-            [int]$From,
-            [int]$To,
-            [string]$Message
-        )
+    function Show-ProgressAnimation {
+    param(
+        [int]$From,
+        [int]$To,
+        [string]$Message
+    )
 
-        for ($value = $From; $value -le $To; $value += 5) {
-            Set-ProgressValue -Value $value -Message $Message
+    for ($value = $From; $value -le $To; $value += 5) {
+        Set-ProgressValue -Value $value -Message $Message
+    }
+    if ($progress.Value -ne $To) {
+        Set-ProgressValue -Value $To -Message $Message
+    }
+    }
+    Set-Alias -Name Animate-Progress -Value Show-ProgressAnimation -Scope Script
+
+    function Update-UiState {
+    param([switch]$KeepStatus)
+
+    try {
+        $script:CurrentDevice = Get-CmpDeviceInfo
+        $currentVersion = Convert-DriverVersionForComparison $script:CurrentDevice.Version
+        $workVersion = Convert-DriverVersionForComparison $script:Config.WorkVersion
+        $gameVersion = Convert-DriverVersionForComparison $script:Config.GameVersion
+        $nl = [Environment]::NewLine
+
+        $profileKnown = $true
+        if ($gameVersion -and $currentVersion -eq $gameVersion) {
+            $currentProfile = 'GPU CHƠI LOL / VALORANT'
+            $desktopProfile = 'Game'
+            $modeHeading.Text = 'CHẾ ĐỘ CHƠI GAME'
+            $modeDetail.Text = 'LOL / Valorant • Driver theo cấu hình'
+            $modePanel.BackColor = [Drawing.Color]::FromArgb(22, 101, 52)
+            $script:NextProfile = 'Work'
+            $toggle.Text = 'CHUYỂN SANG GPU CÔNG SUẤT TỐI ĐA  →'
+            $toggle.BackColor = $blue
         }
-        if ($progress.Value -ne $To) {
-            Set-ProgressValue -Value $To -Message $Message
+        elseif ($workVersion -and $currentVersion -eq $workVersion) {
+            $currentProfile = 'GPU CÔNG SUẤT TỐI ĐA'
+            $desktopProfile = 'Work'
+            $modeHeading.Text = 'CHẾ ĐỘ LÀM VIỆC'
+            $modeDetail.Text = 'Đồ họa / AI • Driver theo cấu hình'
+            $modePanel.BackColor = $navy
+            $script:NextProfile = 'Game'
+            $toggle.Text = 'CHUYỂN SANG GPU CHƠI LOL / VALORANT  →'
+            $toggle.BackColor = $green
+        }
+        else {
+            $currentProfile = 'CHƯA XÁC ĐỊNH HỒ SƠ'
+            $desktopProfile = ''
+            $modeHeading.Text = 'CHƯA XÁC ĐỊNH'
+            $modeDetail.Text = 'Hãy thiết lập hai thư mục driver'
+            $modePanel.BackColor = $muted
+            $script:NextProfile = ''
+            $profileKnown = $false
+            $toggle.Text = 'THIẾT LẬP DRIVER TRƯỚC KHI CHUYỂN'
+            $toggle.BackColor = $muted
+        }
+
+        $profileLabel.Text = $currentProfile
+        Update-TabEnabledState -DesktopProfile $desktopProfile
+        if ($profileKnown) {
+            try { Update-DesktopShortcut -DriverProfile $desktopProfile -CreateIfMissing }
+            catch { Write-AppLog "Không cập nhật được shortcut Desktop/Start Menu: $($_.Exception.Message)" }
+        }
+        $deviceLabel.Text = ('GPU: {0}{1}Phiên bản: {2}    •    INF: {3}{1}Chữ ký: {4}' -f $script:CurrentDevice.Description, $nl, $script:CurrentDevice.Version, $script:CurrentDevice.PublishedName, $script:CurrentDevice.Signer)
+        $toggle.Enabled = $profileKnown -and $confirm.Checked
+        if (-not $KeepStatus) {
+            Set-ProgressValue -Value 0
+            $status.Text = if ($profileKnown) { '● Sẵn sàng' } else { '● Cần thiết lập driver / phiên bản chưa khớp' }
+            $status.ForeColor = $muted
         }
     }
-
-    function Refresh-UiState {
-        param([switch]$KeepStatus)
-
-        try {
-            $script:CurrentDevice = Get-CmpDeviceInfo
-            $currentVersion = Convert-DriverVersionForComparison $script:CurrentDevice.Version
-            $workVersion = Convert-DriverVersionForComparison $script:Config.WorkVersion
-            $gameVersion = Convert-DriverVersionForComparison $script:Config.GameVersion
-            $nl = [Environment]::NewLine
-
-            $profileKnown = $true
-            if ($gameVersion -and $currentVersion -eq $gameVersion) {
-                $currentProfile = 'GPU CHƠI LOL / VALORANT'
-                $desktopProfile = 'Game'
-                $modeHeading.Text = 'CHẾ ĐỘ CHƠI GAME'
-                $modeDetail.Text = 'LOL / Valorant • Driver theo cấu hình'
-                $modePanel.BackColor = [Drawing.Color]::FromArgb(22, 101, 52)
-                $script:NextProfile = 'Work'
-                $toggle.Text = 'CHUYỂN SANG GPU CÔNG SUẤT TỐI ĐA  →'
-                $toggle.BackColor = $blue
-            }
-            elseif ($workVersion -and $currentVersion -eq $workVersion) {
-                $currentProfile = 'GPU CÔNG SUẤT TỐI ĐA'
-                $desktopProfile = 'Work'
-                $modeHeading.Text = 'CHẾ ĐỘ LÀM VIỆC'
-                $modeDetail.Text = 'Đồ họa / AI • Driver theo cấu hình'
-                $modePanel.BackColor = $navy
-                $script:NextProfile = 'Game'
-                $toggle.Text = 'CHUYỂN SANG GPU CHƠI LOL / VALORANT  →'
-                $toggle.BackColor = $green
-            }
-            else {
-                $currentProfile = 'CHƯA XÁC ĐỊNH HỒ SƠ'
-                $desktopProfile = ''
-                $modeHeading.Text = 'CHƯA XÁC ĐỊNH'
-                $modeDetail.Text = 'Hãy thiết lập hai thư mục driver'
-                $modePanel.BackColor = $muted
-                $script:NextProfile = ''
-                $profileKnown = $false
-                $toggle.Text = 'THIẾT LẬP DRIVER TRƯỚC KHI CHUYỂN'
-                $toggle.BackColor = $muted
-            }
-            $profileLabel.Text = $currentProfile
-            Update-TabEnabledState -DesktopProfile $desktopProfile
-            if ($profileKnown) {
-                try { Update-DesktopShortcut -Profile $desktopProfile -CreateIfMissing }
-                catch { Write-AppLog "Không cập nhật được shortcut Desktop/Start Menu: $($_.Exception.Message)" }
-            }
-            $deviceLabel.Text = ('GPU: {0}{1}Phiên bản: {2}    •    INF: {3}{1}Chữ ký: {4}' -f $script:CurrentDevice.Description, $nl, $script:CurrentDevice.Version, $script:CurrentDevice.PublishedName, $script:CurrentDevice.Signer)
-            $toggle.Enabled = $profileKnown -and $confirm.Checked
-            if (-not $KeepStatus) {
-                Set-ProgressValue -Value 0
-                $status.Text = if ($profileKnown) { '● Sẵn sàng' } else { '● Cần thiết lập driver / phiên bản chưa khớp' }
-                $status.ForeColor = $muted
-            }
-        }
-        catch {
-            $profileLabel.Text = 'KHÔNG NHẬN DIỆN ĐƯỢC THIẾT BỊ'
-            $deviceLabel.Text = $_.Exception.Message
-            $toggle.Enabled = $false
-            $status.Text = '● Không thực hiện thay đổi'
-            $status.ForeColor = [Drawing.Color]::Firebrick
-        }
+    catch {
+        $profileLabel.Text = 'KHÔNG NHẬN DIỆN ĐƯỢC THIẾT BỊ'
+        $deviceLabel.Text = $_.Exception.Message
+        $toggle.Enabled = $false
+        $status.Text = '● Không thực hiện thay đổi'
+        $status.ForeColor = [Drawing.Color]::Firebrick
     }
+}
 
     $confirm.Add_CheckedChanged({
         $toggle.Enabled = $confirm.Checked -and -not [string]::IsNullOrWhiteSpace($script:NextProfile)
     })
 
     $refreshButton.Add_Click({
-        Refresh-UiState
+        Update-UiState
     })
 
     $settingsButton.Add_Click({
@@ -2976,7 +3436,7 @@ $form.Controls.Add($tabs)
             $script:Config = Get-Config
             $status.Text = '● Đã lưu cấu hình driver'
             $status.ForeColor = $green
-            Refresh-UiState -KeepStatus
+            Update-UiState -KeepStatus
         }
     })
 
@@ -2984,7 +3444,7 @@ $form.Controls.Add($tabs)
         $operationSucceeded = $false
         try {
             Set-ProgressValue -Value 0 -Message '● Đang chuẩn bị chuyển driver...'
-            Animate-Progress -From 0 -To 15 -Message '● Đang kiểm tra hồ sơ driver...'
+            Show-ProgressAnimation -From 0 -To 15 -Message '● Đang kiểm tra hồ sơ driver...'
 
             if ($script:NextProfile -eq 'Game') {
                 if (Test-UnlockerInstalled) {
@@ -3005,7 +3465,7 @@ $form.Controls.Add($tabs)
                     $choice = Get-GameInstallSelection -InfPath $script:Config.GameInf -ModelName $script:Config.GameModel -ValidateWithSetupApi
                 }
                 $profileName = 'LOL / Valorant'
-                $resolvedGame = Assert-DriverProfileFolder -Config $script:Config -Profile Game
+                $resolvedGame = Assert-DriverProfileFolder -Config $script:Config -DriverProfile Game
                 $infPath = $resolvedGame.InfPath
                 $installMode = $choice.Mode
                 $modelName = $choice.ModelName
@@ -3021,7 +3481,7 @@ $form.Controls.Add($tabs)
                     throw 'INF GPU làm việc không còn hợp lệ hoặc không chứa DEV_1F0B. Mở Thiết lập driver.'
                 }
                 $profileName = 'GPU công suất tối đa'
-                $resolvedWork = Assert-DriverProfileFolder -Config $script:Config -Profile Work
+                $resolvedWork = Assert-DriverProfileFolder -Config $script:Config -DriverProfile Work
                 $infPath = $resolvedWork.InfPath
                 $installMode = 'Compatible'
                 $modelName = ''
@@ -3038,7 +3498,7 @@ $form.Controls.Add($tabs)
 
             $result = Install-CmpDriver -ProfileName $profileName -InfPath $infPath -InstallMode $installMode -ModelName $modelName
             Animate-Progress -From 65 -To 90 -Message '● Đang xác nhận trạng thái driver mới...'
-            Refresh-UiState -KeepStatus
+            Update-UiState -KeepStatus
             $operationSucceeded = $true
             if ($result.RebootRequired) {
                 [System.Windows.Forms.MessageBox]::Show(
@@ -3062,7 +3522,7 @@ $form.Controls.Add($tabs)
             $settingsButton.Enabled = $true
             $refreshButton.Enabled = $true
             $confirm.Checked = $false
-            Refresh-UiState -KeepStatus
+            Update-UiState -KeepStatus
         }
 
         if ($operationSucceeded) {
@@ -3073,7 +3533,7 @@ $form.Controls.Add($tabs)
     })
 
     Write-AppLog 'Đang nhận diện trạng thái driver hiện tại.'
-    Refresh-UiState
+    Update-UiState
     Write-AppLog 'Chuẩn bị hiển thị cửa sổ chính.'
     $dialogResult = $form.ShowDialog()
     Write-AppLog "Cửa sổ chính đã đóng: $dialogResult"
