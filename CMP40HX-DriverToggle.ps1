@@ -3,9 +3,6 @@
 param(
     [switch]$CheckOnly,
     [string]$ValidateGameInf = '',
-    [switch]$Simulation,
-    [ValidateSet('Work', 'Game')][string]$SimulationStartProfile = 'Work',
-    [switch]$SelfTest,
     [string]$ScanFolder = ''
 )
 
@@ -13,18 +10,14 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
 $script:HardwareId = 'PCI\VEN_10DE&DEV_1F0B'
-# Chỉ dùng model mô phỏng cho self-test. Chế độ thật KHÔNG tự ép model khác.
-$script:GameModel = if ($Simulation) { 'NVIDIA 40HX SIMULATION MODEL' } else { '' }
+$script:GameModel = ''
 $script:Version = '1.3.3-public' 
 $script:AppDirectory = Split-Path -Parent $PSCommandPath
-$script:Simulation = [bool]$Simulation
-$script:SimulationProfile = $SimulationStartProfile
-$script:FixtureDirectory = Join-Path $script:AppDirectory 'simulation-fixtures'
 $script:LauncherPath = Join-Path $script:AppDirectory 'Chay-CMP40HX-DriverToggle.vbs'
 $script:DesktopShortcutName = 'CMP40HX Ultimate Toolkit.lnk'
 $script:StartMenuShortcutName = 'CMP40HX Ultimate Toolkit.lnk'
-$script:ConfigPath = Join-Path $script:AppDirectory $(if ($script:Simulation) { 'cmp40hx-profiles.simulation.json' } else { 'cmp40hx-profiles.json' })
-$script:LogPath = Join-Path $script:AppDirectory $(if ($script:Simulation) { 'cmp40hx-simulation.log' } else { 'cmp40hx-switch.log' })
+$script:ConfigPath = Join-Path $script:AppDirectory 'cmp40hx-profiles.json'
+$script:LogPath = Join-Path $script:AppDirectory 'cmp40hx-switch.log'
 
 function Write-AppLog {
     param([string]$Message)
@@ -38,7 +31,6 @@ function Update-DesktopShortcut {
         [ValidateSet('Work', 'Game')][string]$Profile,
         [switch]$CreateIfMissing
     )
-    if ($script:Simulation) { return }
     if (-not (Test-Path -LiteralPath $script:LauncherPath -PathType Leaf)) {
         throw "Không tìm thấy launcher: $($script:LauncherPath)"
     }
@@ -83,25 +75,6 @@ function Start-ElevatedCopy {
 }
 
 function Get-DriverStorePackages {
-    if ($script:Simulation) {
-        return @(
-            [pscustomobject]@{
-                PublishedName = 'oem-sim-work.inf'
-                OriginalName  = 'nvaci-simulation.inf'
-                Provider      = 'NVIDIA (simulation)'
-                Version       = '03/23/2026 32.0.15.9602'
-                Signer        = 'SIMULATION - no hardware access'
-            },
-            [pscustomobject]@{
-                PublishedName = 'oem-sim-game.inf'
-                OriginalName  = 'nv_dispi-simulation.inf'
-                Provider      = 'NVIDIA (simulation)'
-                Version       = '05/15/2020 26.21.14.4614'
-                Signer        = 'SIMULATION - no hardware access'
-            }
-        )
-    }
-
     $raw = (& pnputil.exe /enum-drivers 2>&1 | Out-String)
     $blocks = $raw -split '(?:\r?\n){2,}'
     $results = @()
@@ -130,19 +103,6 @@ function Get-DriverStorePackages {
 }
 
 function Get-CmpDeviceInfo {
-    if ($script:Simulation) {
-        $isGame = $script:SimulationProfile -eq 'Game'
-        return [pscustomobject]@{
-            InstanceId    = 'PCI\VEN_10DE&DEV_1F0B&SUBSYS_SIMULATION'
-            Description   = if ($isGame) { $script:GameModel } else { 'NVIDIA CMP 40HX' }
-            Status        = 'Started (simulation)'
-            PublishedName = if ($isGame) { 'oem-sim-game.inf' } else { 'oem-sim-work.inf' }
-            OriginalName  = if ($isGame) { 'nv_dispi-simulation.inf' } else { 'nvaci-simulation.inf' }
-            Version       = if ($isGame) { '05/15/2020 26.21.14.4614' } else { '03/23/2026 32.0.15.9602' }
-            Signer        = 'SIMULATION - no hardware access'
-        }
-    }
-
     $raw = (& pnputil.exe /enum-devices /class Display /drivers 2>&1 | Out-String)
     $blocks = [regex]::Split($raw, '(?im)(?=^Instance ID:\s*)')
     $deviceBlock = $blocks | Where-Object { $_ -match [regex]::Escape($script:HardwareId) } | Select-Object -First 1
@@ -170,11 +130,6 @@ function Get-CmpDeviceInfo {
 
 function Get-DriverStoreInfPath {
     param([Parameter(Mandatory = $true)][string]$PublishedName)
-
-    if ($script:Simulation) {
-        $fixtureName = if ($PublishedName -ieq 'oem-sim-game.inf') { 'game-driver.inf' } else { 'work-driver.inf' }
-        return Join-Path (Join-Path $script:FixtureDirectory $(if ($PublishedName -ieq 'oem-sim-game.inf') { 'game' } else { 'work' })) $fixtureName
-    }
 
     # Windows keeps each published OEM INF here. Reading it directly avoids the
     # very slow Get-WindowsDriver/DISM scan that can make startup appear frozen.
@@ -326,7 +281,7 @@ function Get-GameInstallSelection {
     if (-not (Test-InfContainsGameModel -InfPath $InfPath -ModelName $ModelName)) {
         throw 'INF game không chứa DEV_1F0B. Hãy nhập đúng tên model trong INF hoặc dùng INF đã hỗ trợ CMP 40HX.'
     }
-    if ($ValidateWithSetupApi -and -not $script:Simulation) {
+    if ($ValidateWithSetupApi) {
         Initialize-ForcedModelDriverApi
         $device = Get-CmpDeviceInfo
         if (-not [Cmp40Hx.ForcedModelDriverApi]::ContainsModel($device.InstanceId, ([IO.Path]::GetFullPath($InfPath)), $ModelName)) {
@@ -339,16 +294,14 @@ function Get-GameInstallSelection {
 function New-DefaultConfig {
     # Không dùng C:\Windows\INF\oem*.inf làm bộ cài nguồn: API cài driver
     # yêu cầu đường dẫn gói INF đầy đủ, có các file driver đi kèm.
-    $workInf = if ($script:Simulation) { Join-Path (Join-Path $script:FixtureDirectory 'work') 'work-driver.inf' } else { '' }
-
     return [pscustomobject]@{
         HardwareId = $script:HardwareId
-        WorkInf     = $workInf
-        WorkVersion = (Get-InfVersion -InfPath $workInf)
-        WorkDirectory = if ($script:Simulation) { Join-Path $script:FixtureDirectory 'work' } else { '' }
-        GameDirectory = if ($script:Simulation) { Join-Path $script:FixtureDirectory 'game' } else { '' }
-        GameInf     = if ($script:Simulation) { Join-Path (Join-Path $script:FixtureDirectory 'game') 'game-driver.inf' } else { '' }
-        GameVersion = if ($script:Simulation) { '26.21.14.4614' } else { '' }
+        WorkInf     = ''
+        WorkVersion = ''
+        WorkDirectory = ''
+        GameDirectory = ''
+        GameInf     = ''
+        GameVersion = ''
         GameModel   = $script:GameModel
     }
 }
@@ -655,29 +608,6 @@ function Install-CmpDriver {
     $fullPath = [IO.Path]::GetFullPath($InfPath)
     Write-AppLog "Bắt đầu chuyển sang '$ProfileName': $fullPath"
 
-    if ($script:Simulation) {
-        if ($InstallMode -eq 'ForcedModel') {
-            if (-not $ModelName -or -not (Test-InfContainsGameModel -InfPath $fullPath -ModelName $ModelName)) {
-                throw "INF mô phỏng không chứa model '$ModelName'."
-            }
-            $script:SimulationProfile = 'Game'
-        }
-        else {
-            if (-not (Test-InfSupportsCmp40Hx -InfPath $fullPath)) {
-                throw "INF mô phỏng không chứa $($script:HardwareId)."
-            }
-            $script:SimulationProfile = if ($ProfileName -match 'LOL|Game|Valorant') { 'Game' } else { 'Work' }
-        }
-
-        $after = Get-CmpDeviceInfo
-        Write-AppLog "MÔ PHỎNG hoàn tất '$ProfileName': $($after.Description), $($after.PublishedName), $($after.Version)"
-        return [pscustomobject]@{
-            RebootRequired = $false
-            Device         = $after
-            Simulation     = $true
-        }
-    }
-
     if ($InstallMode -eq 'ForcedModel') {
         if (-not $ModelName) {
             throw 'Chưa cấu hình model giả lập cho GPU chơi LOL / Valorant.'
@@ -711,7 +641,6 @@ function Install-CmpDriver {
     return [pscustomobject]@{
         RebootRequired = $rebootRequired
         Device         = $after
-        Simulation     = $false
     }
 }
 
@@ -907,14 +836,13 @@ function Start-Gui {
     $muted = [Drawing.Color]::FromArgb(71, 85, 105)
 
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = if ($script:Simulation) { 'CMP40HX Ultimate Toolkit - MÔ PHỎNG' } else { 'CMP40HX Ultimate Toolkit' }
+    $form.Text = 'CMP40HX Ultimate Toolkit'
     $form.StartPosition = 'CenterScreen'
-    $form.ClientSize = New-Object Drawing.Size(720, 728)
-    $form.MinimumSize = New-Object Drawing.Size(745, 807)
     $form.BackColor = $background
     $form.Font = New-Object Drawing.Font('Segoe UI', 9)
     $form.FormBorderStyle = 'FixedSingle'
     $form.MaximizeBox = $false
+    $form.ClientSize = New-Object Drawing.Size(720, 768)   # 88 header + 680 tabs, no leftover strip
     $form.Add_Shown({
         $form.Activate()
         $form.BringToFront()
@@ -941,22 +869,17 @@ function Start-Gui {
     $subtitle.Text = 'Chuyển hồ sơ driver có kiểm tra - Unlock driver đến hiệu năng tối đa • Bản CMP 40HX'
     $header.Controls.Add($subtitle)
 
-    $modeBadge = New-Object System.Windows.Forms.Label
-    $modeBadge.Location = New-Object Drawing.Point(556, 25)
-    $modeBadge.Size = New-Object Drawing.Size(136, 36)
-    $modeBadge.TextAlign = 'MiddleCenter'
-    $modeBadge.Font = New-Object Drawing.Font('Segoe UI Semibold', 10, [Drawing.FontStyle]::Bold)
-    if ($script:Simulation) {
-        $modeBadge.Text = '● MÔ PHỎNG'
-        $modeBadge.BackColor = [Drawing.Color]::FromArgb(220, 252, 231)
-        $modeBadge.ForeColor = $green
-    }
-    else {
-        $modeBadge.Text = '● CHẾ ĐỘ THẬT'
-        $modeBadge.BackColor = [Drawing.Color]::FromArgb(254, 226, 226)
-        $modeBadge.ForeColor = [Drawing.Color]::FromArgb(185, 28, 28)
-    }
-    $header.Controls.Add($modeBadge)
+    $btnUpdate = New-Object System.Windows.Forms.Button
+    $btnUpdate.Location  = New-Object Drawing.Point(536, 26)
+    $btnUpdate.Size      = New-Object Drawing.Size(156, 36)
+    $btnUpdate.Text      = 'Tải về bản mới nhất'
+    $btnUpdate.FlatStyle = 'Flat'
+    $btnUpdate.FlatAppearance.BorderSize = 0
+    $btnUpdate.BackColor = $blue
+    $btnUpdate.ForeColor = [Drawing.Color]::White
+    $btnUpdate.Font      = New-Object Drawing.Font('Segoe UI Semibold', 9, [Drawing.FontStyle]::Bold)
+    $btnUpdate.Cursor    = [System.Windows.Forms.Cursors]::Hand
+    $header.Controls.Add($btnUpdate)
 
     $modePanel = New-Object System.Windows.Forms.Panel
     $modePanel.Location = New-Object Drawing.Point(24, 108)
@@ -1011,28 +934,23 @@ function Start-Gui {
     $warningPanel = New-Object System.Windows.Forms.Panel
     $warningPanel.Location = New-Object Drawing.Point(24, 456)
     $warningPanel.Size = New-Object Drawing.Size(672, 54)
-    $warningPanel.BackColor = if ($script:Simulation) { [Drawing.Color]::FromArgb(220, 252, 231) } else { [Drawing.Color]::FromArgb(255, 237, 213) }
+    $warningPanel.BackColor = [Drawing.Color]::FromArgb(255, 237, 213)
     $form.Controls.Add($warningPanel)
 
     $warningIcon = New-Object System.Windows.Forms.Label
     $warningIcon.Location = New-Object Drawing.Point(16, 14)
     $warningIcon.Size = New-Object Drawing.Size(28, 28)
     $warningIcon.Font = New-Object Drawing.Font('Segoe UI Symbol', 14, [Drawing.FontStyle]::Bold)
-    $warningIcon.ForeColor = if ($script:Simulation) { $green } else { $orange }
-    $warningIcon.Text = if ($script:Simulation) { '✓' } else { '!' }
+    $warningIcon.ForeColor = $orange
+    $warningIcon.Text = '!'
     $warningPanel.Controls.Add($warningIcon)
 
     $warning = New-Object System.Windows.Forms.Label
     $warning.Location = New-Object Drawing.Point(49, 9)
     $warning.Size = New-Object Drawing.Size(600, 38)
     $warning.TextAlign = 'MiddleLeft'
-    $warning.ForeColor = if ($script:Simulation) { [Drawing.Color]::FromArgb(21, 128, 61) } else { $orange }
-    $warning.Text = if ($script:Simulation) {
-        'Mô phỏng an toàn: không gọi pnputil, SetupAPI, NewDev hoặc thay đổi driver thật.'
-    }
-    else {
-        'Đóng game và mọi ứng dụng dùng GPU trước khi chuyển. Màn hình có thể chớp trong vài giây.'
-    }
+    $warning.ForeColor = $orange
+    $warning.Text = 'Đóng game và mọi ứng dụng dùng GPU trước khi chuyển. Màn hình có thể chớp trong vài giây.'
     $warningPanel.Controls.Add($warning)
 
     $actionTitle = New-Object System.Windows.Forms.Label
@@ -1084,7 +1002,6 @@ function Start-Gui {
     $confirm.Size = New-Object Drawing.Size(360, 25)
     $confirm.Text = 'Tôi đã đóng game và các ứng dụng đang dùng GPU'
     $confirm.ForeColor = $muted
-    $confirm.Visible = -not $script:Simulation
     $form.Controls.Add($confirm)
 
     $status = New-Object System.Windows.Forms.Label
@@ -1104,7 +1021,7 @@ function Start-Gui {
     $settingsButton = New-Object System.Windows.Forms.Button
     $settingsButton.Location = New-Object Drawing.Point(514, 686)
     $settingsButton.Size = New-Object Drawing.Size(182, 32)
-    $settingsButton.Text = if ($script:Simulation) { 'Cấu hình mô phỏng...' } else { 'Thiết lập driver...' }
+    $settingsButton.Text = 'Thiết lập driver...'
     $form.Controls.Add($settingsButton)
 
     # ================= TABS =================
@@ -1293,10 +1210,6 @@ function Show-CheckReport {
     Add-UnlockLog ("[Kết luận] {0} (mã thoát {1})" -f $msg, $r.ExitCode)
     Add-UnlockLog '[i] Báo cáo đầy đủ: chạy 40HXCheck.exe không kèm -json (ghi vào %LOCALAPPDATA%\40HXUnlock\logs\diagnose.txt).'
 
-    $thirdPartyMsg = $null
-    try {
-        $out = & (Join-Path $unlockerDir '40HXCheck.exe') -detectav 2>$null
-    } catch { }
     $lblState.Text = $msg
 }
 
@@ -1348,42 +1261,6 @@ function Invoke-PowerStep {
     param([string]$Name, [scriptblock]$Action)
     try { & $Action; Add-UnlockLog "  [Power] $Name - OK" }
     catch { Add-UnlockLog "  [!] $Name failed: $($_.Exception.Message)" }
-}
-
-function Invoke-UnlockerTool {
-    param([string]$ExeName, [string]$Arguments = '')
-    $exe = Join-Path $unlockerDir $ExeName
-    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-        Add-UnlockLog "[!] Not found: $exe"
-        return
-    }
-    $tmp = Join-Path $env:TEMP ("cmp40hx-{0}.txt" -f [guid]::NewGuid().ToString('N'))
-    try {
-        Add-UnlockLog "[>] $ExeName $Arguments"
-        Write-AppLog "Unlocker: $ExeName $Arguments"
-        $splat = @{
-            FilePath               = $exe
-            WorkingDirectory       = $unlockerDir
-            WindowStyle            = 'Hidden'
-            PassThru               = $true
-            RedirectStandardOutput = $tmp
-        }
-        if ($Arguments) { $splat.ArgumentList = $Arguments }
-        $p = Start-Process @splat
-        while (-not $p.HasExited) {
-            [System.Windows.Forms.Application]::DoEvents()
-            Start-Sleep -Milliseconds 50
-        }
-        if (Test-Path -LiteralPath $tmp) {
-            foreach ($l in (Get-Content -LiteralPath $tmp -Encoding UTF8)) { Add-UnlockLog $l }
-        }
-        Add-UnlockLog "[i] $ExeName finished (exit code $($p.ExitCode))."
-    }
-    catch {
-        Add-UnlockLog "[!] Lỗi: $($_.Exception.Message)"
-        Write-AppLog "LỖI Unlocker: $($_.Exception.Message)"
-    }
-    finally { Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue }
 }
 
 $cfgKey = 'HKLM:\SOFTWARE\40HXUnlock'
@@ -1759,18 +1636,6 @@ $btnRunInstall.Add_Click({
     finally { & $setBusy $false }
 })
 
-$btnCheck.Add_Click({
-    & $setBusy $true
-    Invoke-UnlockerTool -ExeName '40HXCheck.exe'
-    & $setBusy $false
-})
-$btnUninstall.Add_Click({
-    $a = [System.Windows.Forms.MessageBox]::Show('Run 40HXUninstall.exe and remove the unlock components?', 'CMP 40HX', 'YesNo', 'Warning')
-    if ($a -ne [System.Windows.Forms.DialogResult]::Yes) { return }
-    & $setBusy $true
-    Invoke-UnlockerTool -ExeName '40HXUninstall.exe'
-    & $setBusy $false
-})
 # ================= END Tab 2 =================
 
 # ================= Tab: GPU mặc định =================
@@ -1837,45 +1702,136 @@ function Get-GpuAdapters {
     return $adapters
 }
 
-function Set-DefaultDxGpu {
-    param($Adapter)
-    if (-not (Test-Path -LiteralPath "$dxPath\GraphicsSettings")) { New-Item -Path "$dxPath\GraphicsSettings" -Force | Out-Null }
-    Set-ItemProperty -Path "$dxPath\GraphicsSettings" -Name DefaultHighPerfGPUApplicable -Value 1 -Type DWord
-    Set-ItemProperty -Path "$dxPath\GraphicsSettings" -Name SpecificGPUOptionApplicable  -Value 1 -Type DWord
-
-    if (-not (Test-Path -LiteralPath "$dxPath\UserGpuPreferences")) { New-Item -Path "$dxPath\UserGpuPreferences" -Force | Out-Null }
-    $result = Get-ItemProperty -LiteralPath "$dxPath\UserGpuPreferences" -Name DirectXUserGlobalSettings -ErrorAction SilentlyContinue
-    $existing = Get-RegProp $result 'DirectXUserGlobalSettings'
-    $swap = if ($existing -match 'SwapEffectUpgradeEnable=1') { 'SwapEffectUpgradeEnable=1;' } else { 'SwapEffectUpgradeEnable=0;' }
-    $value = "HighPerfAdapter=$($Adapter.DeviceId);$swap"
-    Set-ItemProperty -Path "$dxPath\UserGpuPreferences" -Name DirectXUserGlobalSettings -Value $value -Type String
+# ---------- log helpers ----------
+function Add-DefLog {
+    param([string]$Text)
+    $line = '[{0:HH:mm:ss}] {1}' -f (Get-Date), $Text
+    $defLog.AppendText($line + [Environment]::NewLine)
+    Write-AppLog "GPU mặc định: $Text"
+    [System.Windows.Forms.Application]::DoEvents()
 }
 
+function Add-DefChange {
+    param([string]$Label, $Old, $New)
+    $o = if ($null -eq $Old -or "$Old" -eq '') { '(chưa có)' } else { "$Old" }
+    $n = if ($null -eq $New -or "$New" -eq '') { '(đã xoá)' } else { "$New" }
+    if ($o -eq $n) { Add-DefLog "  = $Label : giữ nguyên [$n]" }
+    else           { Add-DefLog "  ~ $Label : $o  →  $n" }
+}
+
+function Get-MsoglValue {
+    param([int]$View, [string]$Name)
+    $rv = if ($View -eq 32) { [Microsoft.Win32.RegistryView]::Registry32 } else { [Microsoft.Win32.RegistryView]::Registry64 }
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $rv)
+    try {
+        $k = $base.OpenSubKey('SOFTWARE\Microsoft\Windows NT\CurrentVersion\OpenGLDrivers\MSOGL')
+        if (-not $k) { return $null }
+        try { return $k.GetValue($Name, $null) } finally { $k.Dispose() }
+    }
+    finally { $base.Dispose() }
+}
+
+function Invoke-RegExe {
+    param([string[]]$Arguments)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'      # reg.exe writes errors to stderr
+    try {
+        $out = & reg.exe @Arguments 2>&1 | Out-String
+        $code = $LASTEXITCODE
+    }
+    finally { $ErrorActionPreference = $prev }
+    if ($code -ne 0) { throw "reg.exe $($Arguments -join ' ') lỗi (mã $code): $($out.Trim())" }
+}
+
+function Set-MsoglValue {
+    param([int]$View, [string]$Name, [string]$Type, [string]$Data)
+    $old = Get-MsoglValue -View $View -Name $Name
+    Invoke-RegExe @('add', $script:MsoglKey, '/f', "/reg:$View", '/v', $Name, '/t', $Type, '/d', $Data)
+    $new = Get-MsoglValue -View $View -Name $Name
+    Add-DefChange "MSOGL[$View-bit] $Name" $old $new
+}
+
+$script:MsoglKey = 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\OpenGLDrivers\MSOGL'
+
+# ---------- DirectX ----------
+function Set-DefaultDxGpu {
+    param($Adapter)
+    Add-DefLog "== Đặt GPU hiệu năng cao (DirectX): $($Adapter.Description) =="
+
+    $gs = "$dxPath\GraphicsSettings"
+    if (-not (Test-Path -LiteralPath $gs)) {
+        New-Item -Path $gs -Force | Out-Null
+        Add-DefLog '  + Đã tạo khoá HKCU\...\DirectX\GraphicsSettings'
+    }
+    foreach ($name in 'DefaultHighPerfGPUApplicable', 'SpecificGPUOptionApplicable') {
+        $old = Get-RegProp (Get-ItemProperty -LiteralPath $gs -Name $name -ErrorAction SilentlyContinue) $name
+        Set-ItemProperty -LiteralPath $gs -Name $name -Value 1 -Type DWord
+        $new = Get-RegProp (Get-ItemProperty -LiteralPath $gs -Name $name -ErrorAction SilentlyContinue) $name
+        Add-DefChange "GraphicsSettings\$name" $old $new
+    }
+
+    $up = "$dxPath\UserGpuPreferences"
+    if (-not (Test-Path -LiteralPath $up)) {
+        New-Item -Path $up -Force | Out-Null
+        Add-DefLog '  + Đã tạo khoá HKCU\...\DirectX\UserGpuPreferences'
+    }
+    $existing = Get-RegProp (Get-ItemProperty -LiteralPath $up -Name DirectXUserGlobalSettings -ErrorAction SilentlyContinue) 'DirectXUserGlobalSettings'
+    $swap  = if ($existing -match 'SwapEffectUpgradeEnable=1') { 'SwapEffectUpgradeEnable=1;' } else { 'SwapEffectUpgradeEnable=0;' }
+    $value = "HighPerfAdapter=$($Adapter.DeviceId);$swap"
+    Set-ItemProperty -LiteralPath $up -Name DirectXUserGlobalSettings -Value $value -Type String
+    $new = Get-RegProp (Get-ItemProperty -LiteralPath $up -Name DirectXUserGlobalSettings -ErrorAction SilentlyContinue) 'DirectXUserGlobalSettings'
+    Add-DefChange 'UserGpuPreferences\DirectXUserGlobalSettings' $existing $new
+    Add-DefLog '== Hoàn tất DirectX =='
+}
+
+# ---------- OpenGL ----------
 function Set-DefaultGlGpu {
     param($Adapters, $Chosen)
     if (-not $Chosen.GLPath -or -not $Chosen.GLPath32) {
         throw "GPU này không có sẵn OpenGL ICD (thiếu OpenGLDriverName/Wow trong registry)."
     }
-    foreach ($view in '32', '64') {
-        & reg.exe add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\OpenGLDrivers\MSOGL" /f /reg:$view | Out-Null
+    Add-DefLog "== Đặt ICD OpenGL mặc định: $($Chosen.Description) =="
+    Add-DefLog "  DLL 64-bit: $($Chosen.GLPath)"
+    Add-DefLog "  DLL 32-bit: $($Chosen.GLPath32)"
+
+    foreach ($view in 32, 64) {
+        $existed = $null -ne (Get-MsoglValue -View $view -Name 'DLL') -or $null -ne (Get-MsoglValue -View $view -Name 'Version')
+        Invoke-RegExe @('add', $script:MsoglKey, '/f', "/reg:$view")
+        if (-not $existed) { Add-DefLog "  + Đảm bảo khoá MSOGL tồn tại ($view-bit)" }
     }
-    & reg.exe add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\OpenGLDrivers\MSOGL" /f /reg:64 /v DLL /d $Chosen.GLPath   | Out-Null
-    & reg.exe add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\OpenGLDrivers\MSOGL" /f /reg:32 /v DLL /d $Chosen.GLPath32 | Out-Null
-    foreach ($view in '32', '64') {
-        & reg.exe add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\OpenGLDrivers\MSOGL" /f /reg:$view /v DriverVersion /t REG_DWORD /d 1 | Out-Null
-        & reg.exe add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\OpenGLDrivers\MSOGL" /f /reg:$view /v Version       /t REG_DWORD /d 2 | Out-Null
-        & reg.exe add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\OpenGLDrivers\MSOGL" /f /reg:$view /v Flags         /t REG_DWORD /d 3 | Out-Null
+
+    Set-MsoglValue -View 64 -Name 'DLL' -Type 'REG_SZ' -Data $Chosen.GLPath
+    Set-MsoglValue -View 32 -Name 'DLL' -Type 'REG_SZ' -Data $Chosen.GLPath32
+    foreach ($view in 32, 64) {
+        Set-MsoglValue -View $view -Name 'DriverVersion' -Type 'REG_DWORD' -Data '1'
+        Set-MsoglValue -View $view -Name 'Version'       -Type 'REG_DWORD' -Data '2'
+        Set-MsoglValue -View $view -Name 'Flags'         -Type 'REG_DWORD' -Data '3'
     }
-    # Chuyển mọi adapter sang khoá _OpenGLDriverName(Wow) để MSOGL toàn hệ thống được dùng
+
+    Add-DefLog '  -- Chuyển các adapter sang khoá _OpenGLDriverName --'
     foreach ($a in $Adapters) {
-        if (-not $a.GLPath) { continue }
-        Set-ItemProperty -LiteralPath $a.ClassPath -Name '_OpenGLDriverName'    -Value $a.GLPath   -Type String -Force
+        if (-not $a.GLPath) { Add-DefLog "  - Bỏ qua $($a.Description) (không có OpenGL ICD)"; continue }
+        Add-DefLog "  [$($a.ClassSub)] $($a.Description)"
+        $cur = Get-ItemProperty -LiteralPath $a.ClassPath -ErrorAction SilentlyContinue
+
+        $o = Get-RegProp $cur '_OpenGLDriverName'
+        Set-ItemProperty -LiteralPath $a.ClassPath -Name '_OpenGLDriverName' -Value $a.GLPath -Type String -Force
+        Add-DefChange '    _OpenGLDriverName' $o $a.GLPath
+
         if ($a.GLPath32) {
+            $o = Get-RegProp $cur '_OpenGLDriverNameWow'
             Set-ItemProperty -LiteralPath $a.ClassPath -Name '_OpenGLDriverNameWow' -Value $a.GLPath32 -Type String -Force
+            Add-DefChange '    _OpenGLDriverNameWow' $o $a.GLPath32
         }
-        Remove-ItemProperty -LiteralPath $a.ClassPath -Name 'OpenGLDriverName'    -ErrorAction SilentlyContinue
-        Remove-ItemProperty -LiteralPath $a.ClassPath -Name 'OpenGLDriverNameWow' -ErrorAction SilentlyContinue
+        foreach ($n in 'OpenGLDriverName', 'OpenGLDriverNameWow') {
+            $o = Get-RegProp $cur $n
+            if ($null -ne $o) {
+                Remove-ItemProperty -LiteralPath $a.ClassPath -Name $n -ErrorAction SilentlyContinue
+                Add-DefChange "    $n" $o $null
+            }
+        }
     }
+    Add-DefLog '== Hoàn tất OpenGL. Cần khởi động lại máy để có hiệu lực. =='
 }
 
 # ---------- UI ----------
@@ -1912,6 +1868,7 @@ $btnOpenGraphics.Location = New-Object Drawing.Point(24, 316)
 $btnOpenGraphics.Size     = New-Object Drawing.Size(660, 30)
 $btnOpenGraphics.Text     = 'Mở Cài đặt đồ hoạ Windows'
 $btnOpenGraphics.Add_Click({
+    Add-DefLog 'Mở ms-settings:display-advancedgraphics'
     try { Start-Process 'ms-settings:display-advancedgraphics' }
     catch { [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'CMP 40HX', 'OK', 'Error') | Out-Null }
 })
@@ -1944,19 +1901,48 @@ $defStatus.ForeColor = $muted
 $defStatus.Text     = '● Chưa quét.'
 $tabDefault.Controls.Add($defStatus)
 
+$grpDefLog = New-Object System.Windows.Forms.GroupBox
+$grpDefLog.Text     = 'Log thay đổi (trực tiếp)'
+$grpDefLog.Location = New-Object Drawing.Point(24, 468)
+$grpDefLog.Size     = New-Object Drawing.Size(660, 160)
+$tabDefault.Controls.Add($grpDefLog)
+
+$defLog = New-Object System.Windows.Forms.TextBox
+$defLog.Multiline   = $true
+$defLog.ReadOnly    = $true
+$defLog.ScrollBars  = 'Both'
+$defLog.WordWrap    = $false
+$defLog.Font        = New-Object Drawing.Font('Consolas', 8.5)
+$defLog.BackColor   = [Drawing.Color]::White
+$defLog.Location    = New-Object Drawing.Point(10, 20)
+$defLog.Size        = New-Object Drawing.Size(640, 130)
+$grpDefLog.Controls.Add($defLog)
+
+$btnClearDefLog = New-Object System.Windows.Forms.Button
+$btnClearDefLog.Location = New-Object Drawing.Point(240, 274)
+$btnClearDefLog.Size     = New-Object Drawing.Size(140, 30)
+$btnClearDefLog.Text     = 'Xoá log'
+$btnClearDefLog.Add_Click({ $defLog.Clear() })
+$tabDefault.Controls.Add($btnClearDefLog)
+
+Add-DefLog 'Tab GPU mặc định đã sẵn sàng.'
+
 $script:DefaultGpuAdapters = @()
 
 function Update-GpuList {
     $lstGpu.Items.Clear()
     $script:DefaultGpuAdapters = @(Get-GpuAdapters)
+    Add-DefLog '-- Quét danh sách GPU --'
     if ($script:DefaultGpuAdapters.Count -eq 0) {
         $defStatus.Text = '● Không tìm thấy GPU nào trong registry.'
         $defStatus.ForeColor = [Drawing.Color]::Firebrick
+        Add-DefLog '  [!] Không tìm thấy GPU nào trong registry.'
         return
     }
     foreach ($a in $script:DefaultGpuAdapters) {
         $glMark = if ($a.GLPath) { 'OpenGL: có' } else { 'OpenGL: không' }
         $lstGpu.Items.Add("$($a.Description)   [$($a.DeviceId)]   $glMark") | Out-Null
+        Add-DefLog "  [$($a.ClassSub)] $($a.Description) | $($a.DeviceId) | $glMark"
     }
     $lstGpu.SelectedIndex = 0
     $defStatus.Text = "● Tìm thấy $($script:DefaultGpuAdapters.Count) GPU."
@@ -1977,6 +1963,7 @@ $btnSetDx.Add_Click({
         $defStatus.ForeColor = $green
     }
     catch {
+        Add-DefLog "  [!] LỖI: $($_.Exception.Message)"
         $defStatus.Text = "● Lỗi: $($_.Exception.Message)"
         $defStatus.ForeColor = [Drawing.Color]::Firebrick
     }
@@ -2002,6 +1989,7 @@ $btnSetGl.Add_Click({
         $defStatus.ForeColor = $green
     }
     catch {
+        Add-DefLog "  [!] LỖI: $($_.Exception.Message)"
         $defStatus.Text = "● Lỗi: $($_.Exception.Message)"
         $defStatus.ForeColor = [Drawing.Color]::Firebrick
     }
@@ -2010,7 +1998,807 @@ $btnSetGl.Add_Click({
 Update-GpuList
 # ================= END Tab: GPU mặc định =================
 
-$tabs.TabPages.AddRange(@($tabDriver, $tabDefault, $tabNew))
+# ================= Tab: NEW FEATURE - Tải & chuẩn bị driver (tab đầu tiên) =================
+$tabMain = New-Object System.Windows.Forms.TabPage
+$tabMain.Text = 'Tải driver'
+$tabMain.UseVisualStyleBackColor = $false
+$tabMain.BackColor = $background
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+$drvDownloadDir = Join-Path $script:AppDirectory 'downloads'
+$drvToolsDir    = Join-Path $script:AppDirectory 'tools'
+$drvFixFolder   = Join-Path $script:AppDirectory '(FIX LOL) Driver 40HX'
+$drvGDriveId    = '1Fb1f0PYQoxH6Vz12mbQ9nNGu_m3utDLS'
+$drvPatchRepo   = 'dartraiden/NVIDIA-patcher'
+$drvMinVersion  = [version]'610.0'
+
+# ---------- UI ----------
+$mainTitle = New-Object System.Windows.Forms.Label
+$mainTitle.Location  = New-Object Drawing.Point(24, 14)
+$mainTitle.Size      = New-Object Drawing.Size(660, 26)
+$mainTitle.Font      = New-Object Drawing.Font('Segoe UI Semibold', 13, [Drawing.FontStyle]::Bold)
+$mainTitle.ForeColor = $navy
+$mainTitle.Text      = 'Tải và chuẩn bị driver'
+$tabMain.Controls.Add($mainTitle)
+
+$mainInfo = New-Object System.Windows.Forms.Label
+$mainInfo.Location  = New-Object Drawing.Point(24, 44)
+$mainInfo.Size      = New-Object Drawing.Size(660, 36)
+$mainInfo.ForeColor = $muted
+$mainInfo.Text      = 'Kiểm tra hai bộ driver. Bộ nào thiếu sẽ được tải và xử lý: Dartraiden = driver NVIDIA gốc + bản patch (ghi đè); 40HX = tải từ Google Drive rồi giải nén.'
+$tabMain.Controls.Add($mainInfo)
+
+$grpDrv = New-Object System.Windows.Forms.GroupBox
+$grpDrv.Text     = 'Trạng thái'
+$grpDrv.Location = New-Object Drawing.Point(12, 86)
+$grpDrv.Size     = New-Object Drawing.Size(696, 124)
+$tabMain.Controls.Add($grpDrv)
+
+$lblDart = New-Object System.Windows.Forms.Label
+$lblDart.Location = New-Object Drawing.Point(14, 24)
+$lblDart.Size     = New-Object Drawing.Size(670, 20)
+$lblDart.Text     = 'Driver Dartraiden: chưa kiểm tra'
+$grpDrv.Controls.Add($lblDart)
+
+$lblFix = New-Object System.Windows.Forms.Label
+$lblFix.Location = New-Object Drawing.Point(14, 48)
+$lblFix.Size     = New-Object Drawing.Size(670, 20)
+$lblFix.Text     = 'Driver 40HX: chưa kiểm tra'
+$grpDrv.Controls.Add($lblFix)
+
+$lblPkg = New-Object System.Windows.Forms.Label
+$lblPkg.Location = New-Object Drawing.Point(14, 82)
+$lblPkg.Size     = New-Object Drawing.Size(110, 22)
+$lblPkg.Text     = 'Gói NVIDIA gốc:'
+$grpDrv.Controls.Add($lblPkg)
+
+$cmbPkg = New-Object System.Windows.Forms.ComboBox
+$cmbPkg.DropDownStyle = 'DropDownList'
+$cmbPkg.Location = New-Object Drawing.Point(126, 79)
+$cmbPkg.Size     = New-Object Drawing.Size(150, 24)
+[void]$cmbPkg.Items.Add('Notebook')
+[void]$cmbPkg.Items.Add('Desktop')
+$cmbPkg.SelectedIndex = 0
+$grpDrv.Controls.Add($cmbPkg)
+
+$chkNvenc = New-Object System.Windows.Forms.CheckBox
+$chkNvenc.Location = New-Object Drawing.Point(300, 80)
+$chkNvenc.Size     = New-Object Drawing.Size(380, 24)
+$chkNvenc.Text     = 'Ưu tiên bản patch NVENC-NvFBC (nếu có)'
+$chkNvenc.Checked  = $true
+$grpDrv.Controls.Add($chkNvenc)
+
+$btnDrvCheck = New-Object System.Windows.Forms.Button
+$btnDrvCheck.Location = New-Object Drawing.Point(12, 218)
+$btnDrvCheck.Size     = New-Object Drawing.Size(340, 34)
+$btnDrvCheck.Text     = 'Chỉ kiểm tra'
+$tabMain.Controls.Add($btnDrvCheck)
+
+$btnDrvPrepare = New-Object System.Windows.Forms.Button
+$btnDrvPrepare.Location  = New-Object Drawing.Point(368, 218)
+$btnDrvPrepare.Size      = New-Object Drawing.Size(340, 34)
+$btnDrvPrepare.Text      = 'Kiểm tra và tải mục còn thiếu'
+$btnDrvPrepare.BackColor = $blue
+$btnDrvPrepare.ForeColor = [Drawing.Color]::White
+$btnDrvPrepare.FlatStyle = 'Flat'
+$btnDrvPrepare.FlatAppearance.BorderSize = 0
+$tabMain.Controls.Add($btnDrvPrepare)
+
+$drvProgress = New-Object System.Windows.Forms.ProgressBar
+$drvProgress.Location = New-Object Drawing.Point(12, 264)
+$drvProgress.Size     = New-Object Drawing.Size(640, 22)
+$drvProgress.Minimum = 0; $drvProgress.Maximum = 100
+$tabMain.Controls.Add($drvProgress)
+
+$drvPct = New-Object System.Windows.Forms.Label
+$drvPct.Location  = New-Object Drawing.Point(658, 265)
+$drvPct.Size      = New-Object Drawing.Size(50, 22)
+$drvPct.TextAlign = 'MiddleRight'
+$drvPct.Text      = '0%'
+$tabMain.Controls.Add($drvPct)
+
+$mainStatus = New-Object System.Windows.Forms.Label
+$mainStatus.Location  = New-Object Drawing.Point(12, 292)
+$mainStatus.Size      = New-Object Drawing.Size(696, 22)
+$mainStatus.ForeColor = $muted
+$mainStatus.Text      = '● Sẵn sàng'
+$tabMain.Controls.Add($mainStatus)
+
+$grpDrvLog = New-Object System.Windows.Forms.GroupBox
+$grpDrvLog.Text     = 'Log (trực tiếp)'
+$grpDrvLog.Location = New-Object Drawing.Point(12, 320)
+$grpDrvLog.Size     = New-Object Drawing.Size(696, 310)
+$tabMain.Controls.Add($grpDrvLog)
+
+$drvLog = New-Object System.Windows.Forms.TextBox
+$drvLog.Multiline  = $true
+$drvLog.ReadOnly   = $true
+$drvLog.ScrollBars = 'Both'
+$drvLog.WordWrap   = $false
+$drvLog.Font       = New-Object Drawing.Font('Consolas', 8.5)
+$drvLog.BackColor  = [Drawing.Color]::White
+$drvLog.Location   = New-Object Drawing.Point(10, 20)
+$drvLog.Size       = New-Object Drawing.Size(676, 280)
+$grpDrvLog.Controls.Add($drvLog)
+
+# ---------- helpers: log / progress ----------
+function Add-DrvLog {
+    param([string]$Text)
+    $drvLog.AppendText(('[{0:HH:mm:ss}] {1}{2}' -f (Get-Date), $Text, [Environment]::NewLine))
+    Write-AppLog "Tải driver: $Text"
+    [System.Windows.Forms.Application]::DoEvents()
+}
+
+function Set-DrvProgress {
+    param([int]$Value, [string]$Message = '')
+    $v = [Math]::Max(0, [Math]::Min(100, $Value))
+    $drvProgress.Value = $v
+    $drvPct.Text = "$v%"
+    if ($Message) { $mainStatus.Text = $Message; $mainStatus.ForeColor = $blue }
+    [System.Windows.Forms.Application]::DoEvents()
+}
+
+function Set-DrvBusy {
+    param([bool]$Busy)
+    foreach ($c in @($btnDrvCheck, $btnDrvPrepare, $cmbPkg, $chkNvenc, $btnUpdate)) { $c.Enabled = -not $Busy }
+}
+
+# ---------- helpers: HTTP ----------
+function New-DrvRequest {
+    param([string]$Url, $Cookies = $null)
+    $req = [Net.HttpWebRequest]::Create($Url)
+    $req.UserAgent = 'Mozilla/5.0 CMP40HX-Toolkit'
+    $req.AllowAutoRedirect = $true
+    $req.Timeout = 30000
+    $req.ReadWriteTimeout = 60000
+    if ($Cookies) { $req.CookieContainer = $Cookies }
+    return $req
+}
+
+function Save-DrvResponse {
+    param($Response, [string]$Path, [string]$Label)
+    $total = [long]$Response.ContentLength
+    $part  = "$Path.part"
+    $in  = $Response.GetResponseStream()
+    $out = [IO.File]::Create($part)
+    try {
+        $buf = New-Object byte[] 262144
+        $done = 0L
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $last = 0L
+        while (($n = $in.Read($buf, 0, $buf.Length)) -gt 0) {
+            $out.Write($buf, 0, $n)
+            $done += $n
+            if (($sw.ElapsedMilliseconds - $last) -ge 250) {
+                $last = $sw.ElapsedMilliseconds
+                $mb = [Math]::Round($done / 1MB, 1)
+                if ($total -gt 0) {
+                    Set-DrvProgress ([int](100 * $done / $total)) ("● Đang tải {0}: {1} / {2} MB" -f $Label, $mb, [Math]::Round($total / 1MB, 1))
+                } else {
+                    Set-DrvProgress 0 ("● Đang tải {0}: {1} MB" -f $Label, $mb)
+                }
+            }
+        }
+    }
+    finally { $out.Dispose(); $in.Dispose(); $Response.Close() }
+    Move-Item -LiteralPath $part -Destination $Path -Force
+}
+
+function Save-DrvUrl {
+    # Tải về $Path; bỏ qua nếu tệp có sẵn và cùng dung lượng.
+    param([string]$Url, [string]$Path, [string]$Label)
+    $resp = (New-DrvRequest $Url).GetResponse()
+    if ((Test-Path -LiteralPath $Path) -and $resp.ContentLength -gt 0 -and
+        (Get-Item -LiteralPath $Path).Length -eq $resp.ContentLength) {
+        $resp.Close()
+        Add-DrvLog "  = $Label đã có sẵn trong downloads, bỏ qua tải."
+        return
+    }
+    Save-DrvResponse -Response $resp -Path $Path -Label $Label
+}
+
+function Save-GoogleDriveFile {
+    param([string]$FileId, [string]$DestDir, [string]$Label)
+    $cookies = New-Object Net.CookieContainer
+    $url = "https://drive.usercontent.google.com/download?id=$FileId&export=download&confirm=t"
+    for ($try = 0; $try -lt 3; $try++) {
+        $resp = (New-DrvRequest $url $cookies).GetResponse()
+        if (([string]$resp.ContentType) -notmatch 'text/html') {
+            $name = "$Label.bin"
+            $cd = [string]$resp.Headers['Content-Disposition']
+            if ($cd -match 'filename="([^"]+)"') { $name = $Matches[1] }
+            $name = ($name -replace '[\\/:*?"<>|]', '_')
+            $dest = Join-Path $DestDir $name
+            if ((Test-Path -LiteralPath $dest) -and $resp.ContentLength -gt 0 -and
+                (Get-Item -LiteralPath $dest).Length -eq $resp.ContentLength) {
+                $resp.Close()
+                Add-DrvLog "  = $name đã có sẵn trong downloads, bỏ qua tải."
+            } else {
+                Save-DrvResponse -Response $resp -Path $dest -Label $name
+            }
+            return $dest
+        }
+        # Trang xác nhận "không quét được virus" của Google Drive
+        $reader = New-Object IO.StreamReader($resp.GetResponseStream())
+        $html = $reader.ReadToEnd()
+        $reader.Dispose(); $resp.Close()
+        if ($html -match '<form[^>]+action="([^"]+)"') {
+            $action = [Net.WebUtility]::HtmlDecode($Matches[1])
+            $pairs = foreach ($m in [regex]::Matches($html, '<input[^>]+type="hidden"[^>]+name="([^"]+)"[^>]+value="([^"]*)"')) {
+                '{0}={1}' -f $m.Groups[1].Value, [Uri]::EscapeDataString([Net.WebUtility]::HtmlDecode($m.Groups[2].Value))
+            }
+            $url = $action + '?' + ($pairs -join '&')
+        } else {
+            throw 'Google Drive không cho tải trực tiếp (hết lượt tải hoặc file không công khai). Hãy tải thủ công, giải nén vào thư mục "(FIX LOL) Driver 40HX".'
+        }
+    }
+    throw 'Google Drive liên tục trả về trang xác nhận. Hãy tải thủ công.'
+}
+
+# ---------- helpers: archives ----------
+function Get-ArchiveKind {
+    param([string]$Path)
+    $fs = [IO.File]::OpenRead($Path)
+    try { $b = New-Object byte[] 8; [void]$fs.Read($b, 0, 8) } finally { $fs.Dispose() }
+    if ($b[0] -eq 0x50 -and $b[1] -eq 0x4B) { return 'zip' }
+    if ($b[0] -eq 0x37 -and $b[1] -eq 0x7A -and $b[2] -eq 0xBC -and $b[3] -eq 0xAF) { return '7z' }
+    if ($b[0] -eq 0x52 -and $b[1] -eq 0x61 -and $b[2] -eq 0x72 -and $b[3] -eq 0x21) { return 'rar' }
+    if ($b[0] -eq 0x4D -and $b[1] -eq 0x5A) { return 'exe' }   # bộ cài tự giải nén của NVIDIA (7z SFX)
+    return 'unknown'
+}
+
+function Get-SevenZip {
+    param([switch]$AllowLite)
+    $cands = @(
+        (Join-Path $env:ProgramFiles '7-Zip\7z.exe'),
+        (Join-Path ${env:ProgramFiles(x86)} '7-Zip\7z.exe'),
+        (Join-Path $drvToolsDir '7z.exe')
+    )
+    foreach ($c in $cands) { if (Test-Path -LiteralPath $c -PathType Leaf) { return $c } }
+    $cmd = Get-Command '7z.exe' -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    if (-not $AllowLite) { return '' }
+
+    # 7zr.exe (bản gọn chính thức của 7-Zip) chỉ đọc được 7z / SFX
+    $lite = Join-Path $drvToolsDir '7zr.exe'
+    if (-not (Test-Path -LiteralPath $lite -PathType Leaf)) {
+        New-Item -ItemType Directory -Path $drvToolsDir -Force | Out-Null
+        Add-DrvLog '  Không thấy 7-Zip, tải 7zr.exe từ www.7-zip.org...'
+        Save-DrvUrl -Url 'https://www.7-zip.org/a/7zr.exe' -Path $lite -Label '7zr.exe'
+    }
+    return $lite
+}
+
+function Invoke-DrvProcess {
+    param([string]$Exe, [string]$Arguments)
+    $p = Start-Process -FilePath $Exe -ArgumentList $Arguments -WindowStyle Hidden -PassThru
+    while (-not $p.HasExited) {
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 100
+    }
+    $p.WaitForExit()
+    return $p.ExitCode
+}
+
+function Expand-DrvArchive {
+    param([string]$Archive, [string]$Dest)
+    $kind = Get-ArchiveKind $Archive
+    New-Item -ItemType Directory -Path $Dest -Force | Out-Null
+    $lite = (@('7z', 'exe') -contains $kind)
+    $sz = Get-SevenZip -AllowLite:$lite
+    if ($sz) {
+        $code = Invoke-DrvProcess $sz ('x "{0}" -o"{1}" -y' -f $Archive, $Dest)
+        if ($code -gt 1) { throw "7-Zip báo lỗi (mã $code) khi giải nén $([IO.Path]::GetFileName($Archive))." }
+    }
+    elseif ($kind -eq 'zip') {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [IO.Compression.ZipFile]::ExtractToDirectory($Archive, $Dest)
+    }
+    else { throw "Cần cài 7-Zip để giải nén định dạng '$kind'. Cài 7-Zip rồi chạy lại." }
+}
+
+function Test-DrvDiskSpace {
+    param([long]$NeedBytes)
+    try {
+        $drive = New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($script:AppDirectory))
+        if ($drive.AvailableFreeSpace -lt $NeedBytes) {
+            throw ("Ổ {0} chỉ còn {1} GB trống, cần khoảng {2} GB." -f $drive.Name, [Math]::Round($drive.AvailableFreeSpace / 1GB, 1), [Math]::Round($NeedBytes / 1GB, 1))
+        }
+    }
+    catch [System.ArgumentException] { }   # đường dẫn UNC: bỏ qua kiểm tra
+}
+
+# ---------- helpers: kiểm tra driver có sẵn ----------
+function Test-DrvFolder {
+    param([string]$Path)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Container)) { return $null }
+    try { return (Resolve-DriverFolder -FolderPath $Path) } catch { return $null }
+}
+
+function Get-DrvStatus {
+    $dartCands = @()
+    if ($script:Config.WorkDirectory) { $dartCands += [string]$script:Config.WorkDirectory }
+    $dartCands += @(Get-ChildItem -LiteralPath $script:AppDirectory -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^\d{3}\.\d+-.*win' } | Select-Object -ExpandProperty FullName)
+    $fixCands = @($drvFixFolder)
+    if ($script:Config.GameDirectory) { $fixCands += [string]$script:Config.GameDirectory }
+
+    $dart = $null; $fix = $null
+    foreach ($c in $dartCands) { $r = Test-DrvFolder $c; if ($r) { $dart = $r; break } }
+    foreach ($c in $fixCands)  { $r = Test-DrvFolder $c; if ($r) { $fix  = $r; break } }
+    return [pscustomobject]@{ Dart = $dart; Fix = $fix }
+}
+
+function Show-DrvStatus {
+    param($St)
+    if ($St.Dart) {
+        $lblDart.Text = "✔ Dartraiden: $([IO.Path]::GetFileName($St.Dart.Folder))  (DriverVer $($St.Dart.Version))"
+        $lblDart.ForeColor = $green
+    } else { $lblDart.Text = '✖ Dartraiden: chưa có (hoặc chưa được patch)'; $lblDart.ForeColor = [Drawing.Color]::Firebrick }
+    if ($St.Fix) {
+        $lblFix.Text = "✔ 40HX: $([IO.Path]::GetFileName($St.Fix.Folder))  (DriverVer $($St.Fix.Version))"
+        $lblFix.ForeColor = $green
+    } else { $lblFix.Text = '✖ 40HX: chưa có'; $lblFix.ForeColor = [Drawing.Color]::Firebrick }
+}
+
+# ---------- Dartraiden: tìm bản patch mới nhất ----------
+function Get-DartraidenRelease {
+    param([bool]$PreferNvenc, [version]$Min)
+    $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$drvPatchRepo/releases?per_page=100" -UserAgent 'CMP40HX-Toolkit'
+    $found = @()
+    foreach ($r in @($releases)) {
+        if ($r.draft) { continue }
+        if ($r.tag_name -notmatch '^(\d+\.\d+)$') { continue }      # bản Windows có tag 2 phần; bản Linux có 3 phần
+        $v = [version]$Matches[1]
+        if ($r.name -and $r.name -notmatch '(?i)windows') { continue }
+        if ($v -lt $Min) { continue }
+        $found += [pscustomobject]@{ Version = $v; Tag = [string]$r.tag_name; Release = $r }
+    }
+    $best = $found | Sort-Object Version -Descending | Select-Object -First 1
+    if (-not $best) { throw "Không tìm thấy bản patch Windows >= $Min trên GitHub." }
+
+    $assets = @($best.Release.assets | Where-Object { $_.name -match '(?i)\.(zip|7z|rar)$' })
+    if ($assets.Count -eq 0) { throw "Release $($best.Tag) không có tệp nén patch." }
+    $nv    = @($assets | Where-Object { $_.name -match '(?i)nvenc' })
+    $plain = @($assets | Where-Object { $_.name -notmatch '(?i)nvenc' })
+    $pick = if ($PreferNvenc -and $nv.Count -gt 0) { $nv[0] }
+            elseif ($plain.Count -gt 0) { $plain[0] }
+            else { $assets[0] }
+    return [pscustomobject]@{
+        Tag       = $best.Tag
+        AssetName = [string]$pick.name
+        Url       = [string]$pick.browser_download_url
+        IsNvenc   = ($pick.name -match '(?i)nvenc')
+        AllNames  = ($assets | ForEach-Object { $_.name }) -join ', '
+    }
+}
+
+function Resolve-NvidiaUrl {
+    param([string]$Ver, [string]$PreferredKind)
+    $kinds = if ($PreferredKind -eq 'desktop') { @('desktop', 'notebook') } else { @('notebook', 'desktop') }
+    foreach ($k in $kinds) {
+        $url = "https://us.download.nvidia.com/Windows/$Ver/$Ver-$k-win10-win11-64bit-international-dch-whql.exe"
+        try {
+            $req = New-DrvRequest $url
+            $req.Method = 'HEAD'
+            $r = $req.GetResponse(); $r.Close()
+            if ($k -ne $PreferredKind) { Add-DrvLog "  [!] Không có gói $PreferredKind, dùng gói $k." }
+            return $url
+        }
+        catch { Add-DrvLog "  - Gói $k không tải được: $($_.Exception.Message)" }
+    }
+    throw "Không tìm thấy gói driver NVIDIA $Ver trên us.download.nvidia.com."
+}
+
+function Find-PatchRoot {
+    # Tìm thư mục trong bản patch có nhiều đường dẫn tương đối trùng với thư mục driver nhất (0 = không trùng).
+    param([string]$PatchDir, [string]$DriverDir)
+    $dirs = @($PatchDir) + @(Get-ChildItem -LiteralPath $PatchDir -Directory -Recurse -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty FullName)
+    $bestDir = ''; $bestScore = 0
+    foreach ($d in $dirs) {
+        $score = 0
+        foreach ($f in @(Get-ChildItem -LiteralPath $d -File -Recurse -ErrorAction SilentlyContinue)) {
+            $rel = $f.FullName.Substring($d.Length).TrimStart('\')
+            if (Test-Path -LiteralPath (Join-Path $DriverDir $rel) -PathType Leaf) { $score++ }
+        }
+        if ($score -gt $bestScore) { $bestScore = $score; $bestDir = $d }
+    }
+    return [pscustomobject]@{ Root = $bestDir; Overlap = $bestScore }
+}
+
+function Copy-OverwriteTree {
+    param([string]$From, [string]$To)
+    $added = 0; $over = 0
+    foreach ($f in @(Get-ChildItem -LiteralPath $From -File -Recurse)) {
+        $rel  = $f.FullName.Substring($From.Length).TrimStart('\')
+        $dest = Join-Path $To $rel
+        $dir  = Split-Path -Parent $dest
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        if (Test-Path -LiteralPath $dest) { $over++; Add-DrvLog "  ~ ghi đè: $rel" } else { $added++; Add-DrvLog "  + thêm mới: $rel" }
+        Copy-Item -LiteralPath $f.FullName -Destination $dest -Force
+    }
+    return [pscustomobject]@{ Added = $added; Overwritten = $over }
+}
+
+function Copy-PatchByName {
+    # Ghi đè theo tên tệp: mỗi tệp trong patch đè lên tệp cùng tên trong driver.
+    # Nếu có nhiều tệp cùng tên, chọn tệp có phần đuôi đường dẫn khớp nhiều nhất (hòa thì đè tất cả).
+    param([string]$PatchDir, [string]$DriverDir)
+    $index = @{}
+    foreach ($f in @(Get-ChildItem -LiteralPath $DriverDir -File -Recurse -ErrorAction SilentlyContinue)) {
+        $k = $f.Name.ToLowerInvariant()
+        if (-not $index.ContainsKey($k)) { $index[$k] = New-Object System.Collections.ArrayList }
+        [void]$index[$k].Add($f.FullName)
+    }
+    $over = 0
+    foreach ($p in @(Get-ChildItem -LiteralPath $PatchDir -File -Recurse)) {
+        $k = $p.Name.ToLowerInvariant()
+        if (-not $index.ContainsKey($k)) { Add-DrvLog "  - bỏ qua (driver không có tệp này): $($p.Name)"; continue }
+        $prel = $p.FullName.Substring($PatchDir.Length).TrimStart('\').Split('\')
+        $best = -1; $targets = @()
+        foreach ($c in $index[$k]) {
+            $crel = $c.Substring($DriverDir.Length).TrimStart('\').Split('\')
+            $n = 0
+            while ($n -lt $prel.Count -and $n -lt $crel.Count -and
+                   $prel[$prel.Count - 1 - $n] -ieq $crel[$crel.Count - 1 - $n]) { $n++ }
+            if ($n -gt $best) { $best = $n; $targets = @($c) }
+            elseif ($n -eq $best) { $targets += $c }
+        }
+        foreach ($t in $targets) {
+            Copy-Item -LiteralPath $p.FullName -Destination $t -Force
+            $over++
+            Add-DrvLog "  ~ ghi đè: $($t.Substring($DriverDir.Length).TrimStart('\'))"
+        }
+    }
+    return [pscustomobject]@{ Added = 0; Overwritten = $over }
+}
+
+function Merge-PatchIntoDriver {
+    param([string]$PatchDir, [string]$DriverDir)
+    $files = @(Get-ChildItem -LiteralPath $PatchDir -File -Recurse -ErrorAction SilentlyContinue)
+
+    # Bản patch chỉ chứa các tệp nén lồng bên trong: giải nén tiếp
+    $inner = @($files | Where-Object { $_.Extension -match '^\.(zip|7z|rar)$' })
+    if ($files.Count -gt 0 -and $inner.Count -eq $files.Count) {
+        $i = 0
+        foreach ($a in $inner) {
+            $i++
+            Add-DrvLog "  Giải nén tiếp tệp lồng bên trong: $($a.Name)"
+            Expand-DrvArchive -Archive $a.FullName -Dest (Join-Path $PatchDir "inner$i")
+            Remove-Item -LiteralPath $a.FullName -Force
+        }
+        $files = @(Get-ChildItem -LiteralPath $PatchDir -File -Recurse -ErrorAction SilentlyContinue)
+    }
+
+    Add-DrvLog "  Bản patch chứa $($files.Count) tệp:"
+    foreach ($f in ($files | Select-Object -First 40)) {
+        Add-DrvLog ('    ' + $f.FullName.Substring($PatchDir.Length).TrimStart('\'))
+    }
+    if ($files.Count -gt 40) { Add-DrvLog "    ... và $($files.Count - 40) tệp nữa" }
+    if ($files.Count -eq 0) { throw 'Giải nén bản patch ra thư mục rỗng. Kiểm tra tệp trong downloads\ và 7-Zip.' }
+
+    # Cách 1: khớp theo đường dẫn tương đối
+    $pr = Find-PatchRoot -PatchDir $PatchDir -DriverDir $DriverDir
+    if ($pr.Overlap -gt 0) {
+        Add-DrvLog "  Khớp theo đường dẫn: gốc patch = $($pr.Root) ($($pr.Overlap) tệp trùng)"
+        return (Copy-OverwriteTree -From $pr.Root -To $DriverDir)
+    }
+
+    # Cách 2: khớp theo tên tệp
+    Add-DrvLog '  Không khớp theo đường dẫn, chuyển sang khớp theo tên tệp...'
+    $res = Copy-PatchByName -PatchDir $PatchDir -DriverDir $DriverDir
+    if ($res.Overwritten -eq 0) {
+        throw 'Không tệp nào trong bản patch trùng tên với tệp trong driver gốc. Có thể đã chọn nhầm tệp patch hoặc nhầm gói Notebook/Desktop; xem danh sách tệp ở log.'
+    }
+    return $res
+}
+
+function Install-DartraidenDriver {
+    param($Release = $null)
+    Add-DrvLog '== Dartraiden: chuẩn bị driver =='
+    Test-DrvDiskSpace 8GB
+    New-Item -ItemType Directory -Path $drvDownloadDir -Force | Out-Null
+
+    Set-DrvProgress 2 '● Đang hỏi GitHub bản patch mới nhất...'
+    $rel = if ($Release) { $Release } else { Get-DartraidenRelease -PreferNvenc $chkNvenc.Checked -Min $drvMinVersion }
+    Add-DrvLog "  Bản patch mới nhất: $($rel.Tag)"
+    Add-DrvLog "  Tệp có trong release: $($rel.AllNames)"
+    Add-DrvLog "  Chọn: $($rel.AssetName)  (NVENC: $($rel.IsNvenc))"
+    if ($chkNvenc.Checked -and -not $rel.IsNvenc) { Add-DrvLog 'Không tìm thấy bản patch NVENC, chuyển sang tải bản thường' }
+
+    $kind = if ($cmbPkg.SelectedIndex -eq 1) { 'desktop' } else { 'notebook' }
+    $nvUrl = Resolve-NvidiaUrl -Ver $rel.Tag -PreferredKind $kind
+    $nvFile = [IO.Path]::GetFileName($nvUrl)
+    Add-DrvLog "  Gói NVIDIA: $nvUrl"
+    $nvExe = Join-Path $drvDownloadDir $nvFile
+    Save-DrvUrl -Url $nvUrl -Path $nvExe -Label $nvFile
+
+    $target = Join-Path $script:AppDirectory ([IO.Path]::GetFileNameWithoutExtension($nvFile))
+    $setup = $null
+    if (Test-Path -LiteralPath $target) {
+        $setup = Get-ChildItem -LiteralPath $target -Filter 'setup.exe' -File -Recurse -Depth 1 -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+    if ($setup) {
+        Add-DrvLog "  = Thư mục driver gốc đã có, dùng lại: $target"
+    } else {
+        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+        Set-DrvProgress 50 "● Đang giải nén $nvFile..."
+        Add-DrvLog "  Giải nén vào: $target"
+        Expand-DrvArchive -Archive $nvExe -Dest $target
+        $setup = Get-ChildItem -LiteralPath $target -Filter 'setup.exe' -File -Recurse -Depth 1 -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+    if (-not $setup) { throw "Giải nén xong nhưng không thấy setup.exe trong $target." }
+    $driverDir = $setup.DirectoryName
+
+    $patchFile = Join-Path $drvDownloadDir $rel.AssetName
+    Save-DrvUrl -Url $rel.Url -Path $patchFile -Label $rel.AssetName
+
+    $tmp = Join-Path $env:TEMP ('cmp40hx-patch-' + [guid]::NewGuid().ToString('N'))
+    try {
+        Set-DrvProgress 70 '● Đang giải nén bản patch...'
+        Expand-DrvArchive -Archive $patchFile -Dest $tmp
+        Set-DrvProgress 80 '● Đang ghi đè tệp patch vào thư mục driver...'
+        $res = Merge-PatchIntoDriver -PatchDir $tmp -DriverDir $driverDir
+        Add-DrvLog "  Xong: ghi đè $($res.Overwritten), thêm mới $($res.Added)."
+    }
+    finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue } }
+
+    $resolved = Test-DrvFolder $target
+    if (-not $resolved) {
+        Add-DrvLog '  [!] Đã patch nhưng Resolve-DriverFolder không nhận được đúng 1 INF chứa DEV_1F0B. Kiểm tra thư mục thủ công.'
+        return $null
+    }
+    Add-DrvLog "  OK: $($resolved.InfPath)  (DriverVer $($resolved.Version))"
+    return $resolved
+}
+
+# ---------- 40HX: Google Drive ----------
+function Install-FixDriver {
+    Add-DrvLog '== Driver 40HX: tải từ Google Drive =='
+    Test-DrvDiskSpace 3GB
+    New-Item -ItemType Directory -Path $drvDownloadDir -Force | Out-Null
+    $archive = Save-GoogleDriveFile -FileId $drvGDriveId -DestDir $drvDownloadDir -Label 'driver-40HX'
+    Add-DrvLog "  Đã có: $archive"
+
+    $tmp = Join-Path $env:TEMP ('cmp40hx-fix-' + [guid]::NewGuid().ToString('N'))
+    try {
+        Set-DrvProgress 60 '● Đang giải nén driver 40HX...'
+        Expand-DrvArchive -Archive $archive -Dest $tmp
+        # Nếu bên trong chỉ có đúng một thư mục gốc thì bỏ lớp đó
+        $root = $tmp
+        while ($true) {
+            $items = @(Get-ChildItem -LiteralPath $root -Force)
+            if ($items.Count -eq 1 -and $items[0].PSIsContainer) { $root = $items[0].FullName } else { break }
+        }
+        Set-DrvProgress 85 '● Đang chép vào thư mục driver 40HX...'
+        $res = Copy-OverwriteTree -From $root -To $drvFixFolder
+        Add-DrvLog "  Xong: ghi đè $($res.Overwritten), thêm mới $($res.Added) -> $drvFixFolder"
+    }
+    finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue } }
+
+    $resolved = Test-DrvFolder $drvFixFolder
+    if (-not $resolved) {
+        Add-DrvLog '  [!] Không nhận được đúng 1 INF Display chứa DEV_1F0B trong thư mục này. Kiểm tra thủ công.'
+        return $null
+    }
+    Add-DrvLog "  OK: $($resolved.InfPath)  (DriverVer $($resolved.Version))"
+    return $resolved
+}
+
+# ---------- gán vào Thiết lập driver (chỉ khi mục đó đang trống/không hợp lệ) ----------
+function Set-DrvProfileConfig {
+    param([ValidateSet('Work', 'Game')][string]$Profile, $Resolved)
+    $cur = if ($Profile -eq 'Work') { [string]$script:Config.WorkDirectory } else { [string]$script:Config.GameDirectory }
+    if ($cur -and (Test-DrvFolder $cur)) { return }      # đang có cấu hình tốt, không đụng tới
+    if ($Profile -eq 'Work') { $script:Config.WorkDirectory = $Resolved.Folder; $script:Config.WorkInf = $Resolved.InfPath }
+    else                     { $script:Config.GameDirectory = $Resolved.Folder; $script:Config.GameInf = $Resolved.InfPath }
+    Save-Config -Config $script:Config
+    Add-DrvLog "  Đã gán vào Thiết lập driver ($Profile)."
+}
+
+function Invoke-DrvPrepare {
+    $st = Get-DrvStatus
+    Show-DrvStatus $st
+    if ($st.Dart -and $st.Fix) { Add-DrvLog 'Cả hai bộ driver đã có sẵn, không cần tải.'; Set-DrvProgress 100; return }
+
+    $errors = 0
+    if (-not $st.Dart) {
+        try { $r = Install-DartraidenDriver; if ($r) { Set-DrvProfileConfig -Profile Work -Resolved $r } else { $errors++ } }
+        catch { $errors++; Add-DrvLog "  [!] LỖI Dartraiden: $($_.Exception.Message)" }
+    }
+    if (-not $st.Fix) {
+        try { $r = Install-FixDriver; if ($r) { Set-DrvProfileConfig -Profile Game -Resolved $r } else { $errors++ } }
+        catch { $errors++; Add-DrvLog "  [!] LỖI 40HX: $($_.Exception.Message)" }
+    }
+
+    Show-DrvStatus (Get-DrvStatus)
+    if (Get-Command Refresh-UiState -ErrorAction SilentlyContinue) { try { Refresh-UiState -KeepStatus } catch { } }
+    if ($errors -eq 0) {
+        Set-DrvProgress 100
+        $mainStatus.Text = '● Hoàn tất'; $mainStatus.ForeColor = $green
+    } else {
+        $mainStatus.Text = "● Xong nhưng có $errors lỗi - xem log"; $mainStatus.ForeColor = [Drawing.Color]::Firebrick
+    }
+}
+
+# ---------- buttons ----------
+$btnDrvCheck.Add_Click({
+    Set-DrvBusy $true
+    try {
+        Add-DrvLog '== Kiểm tra driver =='
+        Show-DrvStatus (Get-DrvStatus)
+        $mainStatus.Text = '● Đã kiểm tra'; $mainStatus.ForeColor = $muted
+    }
+    catch { Add-DrvLog "  [!] LỖI: $($_.Exception.Message)" }
+    finally { Set-DrvBusy $false }
+})
+
+$btnDrvPrepare.Add_Click({
+    Set-DrvBusy $true
+    try { Invoke-DrvPrepare }
+    catch {
+        Add-DrvLog "  [!] LỖI: $($_.Exception.Message)"
+        $mainStatus.Text = "● Lỗi: $($_.Exception.Message)"; $mainStatus.ForeColor = [Drawing.Color]::Firebrick
+    }
+    finally { Set-DrvBusy $false }
+})
+
+# ---------- Tải về bản mới nhất (nút ở header) ----------
+$drvStatePath   = Join-Path $script:AppDirectory 'cmp40hx-updates.json'
+$updUnlockerDir = Join-Path $script:AppDirectory 'cmpunlocker'
+$updUnlockerExes = @('40HXInstaller.exe', '40HXCheck.exe', '40HXUninstaller.exe')
+
+function Get-UpdateState {
+    if (Test-Path -LiteralPath $drvStatePath) {
+        try { return (Get-Content -LiteralPath $drvStatePath -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { }
+    }
+    return [pscustomobject]@{ UnlockerTag = '' }
+}
+
+function Save-UpdateState {
+    param($State)
+    $State | ConvertTo-Json | Set-Content -LiteralPath $drvStatePath -Encoding UTF8
+}
+
+function ConvertTo-TagVersion {
+    param([string]$Tag)
+    if ($Tag -match '(\d+(?:\.\d+)+)') { return [version]$Matches[1] }
+    return $null
+}
+
+function Get-LocalPatchedVersion {
+    # Phiên bản cao nhất trong các thư mục "NNN.NN-...win..." đã được patch (có INF DEV_1F0B)
+    $best = $null
+    $dirs = @(Get-ChildItem -LiteralPath $script:AppDirectory -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^\d{3}\.\d+-.*win' })
+    foreach ($d in $dirs) {
+        if ($d.Name -notmatch '^(\d{3}\.\d+)-') { continue }
+        $v = [version]$Matches[1]
+        if ($best -and $v -le $best) { continue }
+        if (Test-DrvFolder $d.FullName) { $best = $v }
+    }
+    return $best
+}
+
+function Update-DartraidenIfNewer {
+    Add-DrvLog '== Dartraiden: kiểm tra bản patch mới nhất =='
+    Set-DrvProgress 2 '● Đang kiểm tra bản patch Dartraiden mới nhất...'
+    $rel    = Get-DartraidenRelease -PreferNvenc $chkNvenc.Checked -Min $drvMinVersion
+    $remote = [version]$rel.Tag
+    $local  = Get-LocalPatchedVersion
+    if ($local) { Add-DrvLog "  Bản patch trên máy: $local | mới nhất trên GitHub: $remote" }
+    else        { Add-DrvLog "  Chưa có driver đã patch trên máy | mới nhất trên GitHub: $remote" }
+
+    if ($local -and $remote -le $local) {
+        Add-DrvLog '  ✔ Đã là bản mới nhất, không cần tải driver NVIDIA.'
+        return
+    }
+    Add-DrvLog "  Có bản patch mới ($remote): tải driver NVIDIA tương ứng và patch."
+    $r = Install-DartraidenDriver -Release $rel
+    if ($r) {
+        Add-DrvLog "  Bản mới nằm ở: $($r.Folder)"
+        Add-DrvLog '  [i] Chưa tự đổi cấu hình. Muốn dùng bản này: Chuyển driver > Thiết lập driver > chọn thư mục mới.'
+    } else { throw 'Đã tải nhưng thư mục driver mới không hợp lệ (xem log).' }
+}
+
+function Get-UnlockerRelease {
+    $fallbackUrl = 'https://github.com/Cyridd/cmpunlocker/releases/download/v2.0.2/CMP40HXWindowsUnlock.zip'
+    try {
+        $r = Invoke-RestMethod -Uri 'https://api.github.com/repos/Cyridd/cmpunlocker/releases/latest' -UserAgent 'CMP40HX-Toolkit'
+        $a = @($r.assets | Where-Object { $_.name -ieq 'CMP40HXWindowsUnlock.zip' }) | Select-Object -First 1
+        if ($a) { return [pscustomobject]@{ Tag = [string]$r.tag_name; Url = [string]$a.browser_download_url } }
+        Add-DrvLog "  [!] Release $($r.tag_name) không có tệp CMP40HXWindowsUnlock.zip, dùng bản v2.0.2."
+    }
+    catch { Add-DrvLog "  [!] Không hỏi được GitHub ($($_.Exception.Message)), dùng bản v2.0.2." }
+    return [pscustomobject]@{ Tag = 'v2.0.2'; Url = $fallbackUrl }
+}
+
+function Update-UnlockerExe {
+    Add-DrvLog '== Unlocker: kiểm tra bản exe mới nhất =='
+    Set-DrvProgress 2 '● Đang kiểm tra bản unlocker mới nhất...'
+    $rel      = Get-UnlockerRelease
+    $state    = Get-UpdateState
+    $localTag = [string](Get-Prop $state 'UnlockerTag' '')
+    $remoteV  = ConvertTo-TagVersion $rel.Tag
+    $localV   = ConvertTo-TagVersion $localTag
+    $missing  = @($updUnlockerExes | Where-Object { -not (Test-Path -LiteralPath (Join-Path $updUnlockerDir $_) -PathType Leaf) })
+    Add-DrvLog ("  Bản đã ghi nhận: {0} | mới nhất: {1} | thiếu exe: {2}" -f $(if ($localTag) { $localTag } else { '(chưa rõ)' }), $rel.Tag, $missing.Count)
+
+    if ($missing.Count -eq 0 -and $localV -and $remoteV -and $remoteV -le $localV) {
+        Add-DrvLog '  ✔ Unlocker đã là bản mới nhất.'
+        return
+    }
+
+    New-Item -ItemType Directory -Path $drvDownloadDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $updUnlockerDir -Force | Out-Null
+    $zip = Join-Path $drvDownloadDir ('CMP40HXWindowsUnlock-{0}.zip' -f $rel.Tag)
+    Save-DrvUrl -Url $rel.Url -Path $zip -Label 'CMP40HXWindowsUnlock.zip'
+    Add-DrvLog ("  SHA256: {0}" -f (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash)
+
+    $tmp = Join-Path $env:TEMP ('cmp40hx-unl-' + [guid]::NewGuid().ToString('N'))
+    try {
+        Set-DrvProgress 60 '● Đang giải nén unlocker...'
+        Expand-DrvArchive -Archive $zip -Dest $tmp
+        $backup = Join-Path $updUnlockerDir ('backup\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+        $updated = 0
+        foreach ($n in $updUnlockerExes) {
+            $src = Get-ChildItem -LiteralPath $tmp -Filter $n -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $src) { Add-DrvLog "  [!] Không thấy $n trong gói."; continue }
+            $dst = Join-Path $updUnlockerDir $n
+            try {
+                if (Test-Path -LiteralPath $dst) {
+                    New-Item -ItemType Directory -Path $backup -Force | Out-Null
+                    Copy-Item -LiteralPath $dst -Destination $backup -Force
+                }
+                Copy-Item -LiteralPath $src.FullName -Destination $dst -Force
+                $updated++
+                Add-DrvLog "  ~ đã cập nhật: $n"
+            }
+            catch { Add-DrvLog "  [!] Không ghi được $n (đang chạy?): $($_.Exception.Message)" }
+        }
+    }
+    finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue } }
+
+    if ($updated -ne $updUnlockerExes.Count) { throw "Chỉ cập nhật được $updated/$($updUnlockerExes.Count) tệp exe." }
+    if (Test-Path -LiteralPath $backup) { Add-DrvLog "  Bản cũ được sao lưu ở: $backup" }
+    $state | Add-Member -NotePropertyName UnlockerTag -NotePropertyValue $rel.Tag -Force
+    Save-UpdateState -State $state
+    Add-DrvLog "  ✔ Unlocker đã cập nhật lên $($rel.Tag)."
+}
+
+function Invoke-LatestUpdate {
+    Add-DrvLog '=== Tải về bản mới nhất ==='
+    $errors = 0
+    try { Update-DartraidenIfNewer } catch { $errors++; Add-DrvLog "  [!] LỖI Dartraiden: $($_.Exception.Message)" }
+    try { Update-UnlockerExe }       catch { $errors++; Add-DrvLog "  [!] LỖI Unlocker: $($_.Exception.Message)" }
+    Show-DrvStatus (Get-DrvStatus)
+    if ($errors -eq 0) {
+        Set-DrvProgress 100
+        $mainStatus.Text = '● Đã kiểm tra và cập nhật xong'; $mainStatus.ForeColor = $green
+    } else {
+        $mainStatus.Text = "● Xong nhưng có $errors lỗi - xem log"; $mainStatus.ForeColor = [Drawing.Color]::Firebrick
+    }
+}
+
+$btnUpdate.Add_Click({
+    $tabs.SelectedTab = $tabMain          # chuyển sang tab có log để theo dõi
+    Set-DrvBusy $true
+    try { Invoke-LatestUpdate }
+    catch {
+        Add-DrvLog "  [!] LỖI: $($_.Exception.Message)"
+        $mainStatus.Text = "● Lỗi: $($_.Exception.Message)"; $mainStatus.ForeColor = [Drawing.Color]::Firebrick
+    }
+    finally { Set-DrvBusy $false }
+})
+
+Add-DrvLog 'Tab Tải driver đã sẵn sàng.'
+Show-DrvStatus (Get-DrvStatus)
+# ================= END Tab: NEW FEATURE =================
+
+$tabs.TabPages.AddRange(@($tabMain, $tabDriver, $tabDefault, $tabNew))
+$tabs.SelectedTab = $tabMain      # or $tabDriver if you want to keep opening there
 $form.Controls.Add($tabs)
 # ================= END TABS =================
 
@@ -2041,9 +2829,6 @@ $form.Controls.Add($tabs)
 
         for ($value = $From; $value -le $To; $value += 5) {
             Set-ProgressValue -Value $value -Message $Message
-            if ($script:Simulation) {
-                Start-Sleep -Milliseconds 25
-            }
         }
         if ($progress.Value -ne $To) {
             Set-ProgressValue -Value $To -Message $Message
@@ -2095,12 +2880,12 @@ $form.Controls.Add($tabs)
 
             $profileLabel.Text = $currentProfile
             if ($tabNew) { $tabNew.Enabled = ($desktopProfile -ne 'Game') }
-            if (-not $script:Simulation -and $profileKnown) {
+            if ($profileKnown) {
                 try { Update-DesktopShortcut -Profile $desktopProfile -CreateIfMissing }
                 catch { Write-AppLog "Không cập nhật được shortcut Desktop/Start Menu: $($_.Exception.Message)" }
             }
             $deviceLabel.Text = ('GPU: {0}{1}Phiên bản: {2}    •    INF: {3}{1}Chữ ký: {4}' -f $script:CurrentDevice.Description, $nl, $script:CurrentDevice.Version, $script:CurrentDevice.PublishedName, $script:CurrentDevice.Signer)
-            $toggle.Enabled = $profileKnown -and ($script:Simulation -or $confirm.Checked)
+            $toggle.Enabled = $profileKnown -and $confirm.Checked
             if (-not $KeepStatus) {
                 Set-ProgressValue -Value 0
                 $status.Text = if ($profileKnown) { '● Sẵn sàng' } else { '● Cần thiết lập driver / phiên bản chưa khớp' }
@@ -2162,7 +2947,7 @@ $form.Controls.Add($tabs)
                 $infPath = $resolvedGame.InfPath
                 $installMode = $choice.Mode
                 $modelName = $choice.ModelName
-                if ($installMode -eq 'ForcedModel' -and -not $script:Simulation) {
+                if ($installMode -eq 'ForcedModel') {
                     $answer = [System.Windows.Forms.MessageBox]::Show(
                         "Chuẩn bị ép model '$modelName' lên CMP 40HX. Bạn đã thử bộ driver này và có phương án khôi phục nếu GPU mất hình?",
                         'Xác nhận chuyển driver ép', 'YesNo', 'Warning')
@@ -2214,13 +2999,13 @@ $form.Controls.Add($tabs)
         finally {
             $settingsButton.Enabled = $true
             $refreshButton.Enabled = $true
-            if (-not $script:Simulation) { $confirm.Checked = $false }
+            $confirm.Checked = $false
             Refresh-UiState -KeepStatus
         }
 
         if ($operationSucceeded) {
             Animate-Progress -From 95 -To 100 -Message '● Hoàn tất chuyển driver'
-            $status.Text = if ($script:Simulation) { "● Mô phỏng thành công: $profileName" } else { "● Đã chuyển sang $profileName - $($result.Device.Version)" }
+            $status.Text = "● Đã chuyển sang $profileName - $($result.Device.Version)"
             $status.ForeColor = $green
         }
     })
@@ -2230,55 +3015,6 @@ $form.Controls.Add($tabs)
     Write-AppLog 'Chuẩn bị hiển thị cửa sổ chính.'
     $dialogResult = $form.ShowDialog()
     Write-AppLog "Cửa sổ chính đã đóng: $dialogResult"
-}
-
-function Invoke-SimulationSelfTest {
-    if (-not $script:Simulation) {
-        throw 'SelfTest chỉ được phép chạy cùng -Simulation.'
-    }
-
-    function Assert-Simulation {
-        param([bool]$Condition, [string]$Name)
-        if ($Condition) {
-            $script:SelfTestPassed++
-            Write-Host "PASS: $Name"
-        }
-        else {
-            $script:SelfTestFailed++
-            Write-Host "FAIL: $Name"
-        }
-    }
-
-    $script:SelfTestPassed = 0
-    $script:SelfTestFailed = 0
-    $script:SimulationProfile = 'Work'
-
-    $config = New-DefaultConfig
-    Save-Config -Config $config
-
-    Assert-Simulation (Test-Path -LiteralPath $script:LauncherPath -PathType Leaf) 'Có launcher cho chế độ thật'
-    Assert-Simulation ($script:HardwareId -eq 'PCI\VEN_10DE&DEV_1F0B') 'Đúng mã thiết bị CMP 40HX'
-
-    Assert-Simulation (Test-Path -LiteralPath $config.WorkInf -PathType Leaf) 'Có INF mô phỏng cho GPU công suất tối đa'
-    Assert-Simulation (Test-Path -LiteralPath $config.GameInf -PathType Leaf) 'Có INF mô phỏng cho GPU chơi LOL / Valorant'
-    Assert-Simulation (Test-InfSupportsCmp40Hx -InfPath $config.WorkInf) 'INF GPU công suất tối đa chứa DEV_1F0B'
-    Assert-Simulation (Test-InfContainsGameModel -InfPath $config.GameInf -ModelName $script:GameModel) 'INF mô phỏng game chứa model được chọn'
-
-    $before = Get-CmpDeviceInfo
-    Assert-Simulation ($before.PublishedName -eq 'oem-sim-work.inf') 'Trạng thái đầu là GPU công suất tối đa'
-
-    $toGame = Install-CmpDriver -ProfileName 'LOL / Valorant' -InfPath $config.GameInf -InstallMode ForcedModel -ModelName $script:GameModel
-    Assert-Simulation ($toGame.Simulation -and $toGame.Device.PublishedName -eq 'oem-sim-game.inf') 'Chuyển mô phỏng sang GPU chơi LOL / Valorant'
-    Assert-Simulation (-not $toGame.RebootRequired) 'Mô phỏng không yêu cầu khởi động lại'
-
-    $toWork = Install-CmpDriver -ProfileName 'GPU công suất tối đa' -InfPath $config.WorkInf -InstallMode Compatible
-    Assert-Simulation ($toWork.Simulation -and $toWork.Device.PublishedName -eq 'oem-sim-work.inf') 'Chuyển mô phỏng về GPU công suất tối đa'
-
-    $realOperations = Select-String -LiteralPath $script:LogPath -Pattern 'ForceInstall|pnputil|SetupDi|DiInstallDevice' -ErrorAction SilentlyContinue
-    Assert-Simulation ($null -eq $realOperations) 'Nhật ký không chứa lời gọi cài driver thật'
-
-    Write-Host "RESULT: $($script:SelfTestPassed) passed, $($script:SelfTestFailed) failed"
-    return $script:SelfTestFailed
 }
 
 if ($ScanFolder) {
@@ -2319,13 +3055,8 @@ if ($ValidateGameInf) {
             Write-Output "OK: INF có DEV_1F0B | $fullPath"
             exit 0
         }
-        if ($script:Simulation) {
-            $containsModel = Test-InfContainsGameModel -InfPath $fullPath -ModelName $script:GameModel
-        }
-        else {
-            Initialize-ForcedModelDriverApi
-            $containsModel = [Cmp40Hx.ForcedModelDriverApi]::ContainsModel($device.InstanceId, $fullPath, $script:GameModel)
-        }
+        Initialize-ForcedModelDriverApi
+        $containsModel = [Cmp40Hx.ForcedModelDriverApi]::ContainsModel($device.InstanceId, $fullPath, $script:GameModel)
         if (-not $containsModel) {
             throw "Không tìm thấy model $($script:GameModel) trong INF."
         }
@@ -2338,25 +3069,13 @@ if ($ValidateGameInf) {
     }
 }
 
-if ($SelfTest) {
-    try {
-        $failureCount = Invoke-SimulationSelfTest
-        if ($failureCount -gt 0) { exit 1 }
-        exit 0
-    }
-    catch {
-        Write-Error $_.Exception.Message
-        exit 1
-    }
-}
-
-if (-not $script:Simulation -and -not (Test-IsAdministrator)) {
+if (-not (Test-IsAdministrator)) {
     Start-ElevatedCopy
     exit
 }
 
 try {
-    Write-AppLog "Khởi động CMP40HX-DriverToggle v$($script:Version). Simulation=$($script:Simulation)"
+    Write-AppLog "Khởi động CMP40HX-DriverToggle v$($script:Version)."
     Start-Gui
 }
 catch {
