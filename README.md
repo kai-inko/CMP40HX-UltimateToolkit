@@ -118,8 +118,8 @@ Ví dụ từ máy kiểm thử của người dùng (không phải tên file b�
 ## Định hướng phát triển
 
 - 1.7.0: Sửa lỗi VBScript vĩnh viễn. (Đã hoàn thành)
-- 1.8.0: Tích hợp tải về các phần mềm Driver, tải về driver tùy chọn, sẽ thêm bản 460.89 của Raincandy nếu khả thi.
-- 1.9.0: Tích hợp các phần mềm Unlocker, cải thiện dịch thuật và hiển thị log cho GPU mặc định.
+- 1.8.0: Tích hợp tải về các phần mềm Driver, tải về driver tùy chọn, ~~sẽ thêm bản 460.89 của Raincandy nếu khả thi.~~ (Đã hoàn thành)
+- 1.9.0: Tích hợp các phần mềm Unlocker, cải thiện dịch thuật và hiển thị log cho GPU mặc định. (Đã hoàn thành)
 - 2.0.0: Tích hợp tất cả vào 1 phần mềm .exe duy nhất và tự động bổ sung cập nhật dựa trên từng tab phần mềm và driver.
 
 ## Nguồn và bản quyền
