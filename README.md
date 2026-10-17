@@ -66,7 +66,7 @@ Ví dụ từ máy kiểm thử của người dùng (không phải tên file b�
 | Hồ sơ | INF tìm thấy trong gói |
 | --- | --- |
 | Làm việc / AI | `Display.Driver\nvaci.inf` (bộ 617.14 đã mod) |
-| Chơi game | `Display.Driver\nvaei.inf` (bộ 460.89 đã mod) |
+| Chơi game | `Display.Driver\nvaci.inf` (bộ 460.89 đã mod) |
 
 ### Đối với tab GPU mặc định
 1. Ấn vào **Quét lại danh sách GPU** để tải lại thông tin driver vừa cài
