@@ -51,7 +51,7 @@ Thêm mới tính năng và cả UI của bản Unlock PCIe 2.0, thêm cả tín
 ### Đối với tab Tải driver
 1. Ấn vào nút **Tải về bản mới nhất** để tải file về từ các repo.
 2. Ấn nút **Kiểm tra và tải về** mục còn thiếu để tải tiếp những mục còn thiếu.
-3. Đối với người dùng chỉ muốn tải và sử dụng Unlocker Gen 2, nhấn nút **Chỉ tải Unlocker".
+3. Đối với người dùng chỉ muốn tải và sử dụng Unlocker Gen 2, nhấn nút **Chỉ tải Unlocker**.
 >Khi không nhận diện được driver và unlocker, ứng dụng sẽ tạm khóa cho đến khi phát hiện file trong lần mở lên tiếp theo.
 
 ### Đối với tab Chuyển Driver
