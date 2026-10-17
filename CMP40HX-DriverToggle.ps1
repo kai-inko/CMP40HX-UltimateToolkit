@@ -1207,11 +1207,51 @@ function Get-Prop {
     return $Default
 }
 
+function Initialize-WindowHider {
+    if ('Cmp40Hx.WinHider' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace Cmp40Hx
+{
+    public static class WinHider
+    {
+        private delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")] private static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+        [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int cmd);
+        [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+
+        // Ẩn mọi cửa sổ (kể cả hộp thoại MessageBox) thuộc tiến trình có PID này
+        public static void HideAll(int pid)
+        {
+            EnumWindows(delegate(IntPtr h, IntPtr l)
+            {
+                uint wp;
+                GetWindowThreadProcessId(h, out wp);
+                if (wp == (uint)pid)
+                {
+                    // đẩy ra ngoài màn hình rồi ẩn, để không bị chớp
+                    SetWindowPos(h, IntPtr.Zero, -32000, -32000, 0, 0, 0x0001 | 0x0004 | 0x0010);
+                    ShowWindow(h, 0);
+                }
+                return true;
+            }, IntPtr.Zero);
+        }
+    }
+}
+'@
+}
+
 function Invoke-DiagnoseCheck {
     if (-not (Test-Path -LiteralPath $script:CheckerExe -PathType Leaf)) {
         Add-UnlockLog "[!] Không tìm thấy: $($script:CheckerExe)"
         return $false
     }
+    Initialize-WindowHider
+
     $diagPath = Join-Path $env:LOCALAPPDATA '40HXUnlock\logs\diagnose.txt'
     Remove-Item -LiteralPath $diagPath -Force -ErrorAction SilentlyContinue
 
@@ -1223,7 +1263,6 @@ function Invoke-DiagnoseCheck {
     $psi.WorkingDirectory       = $script:UnlockerDir
     $psi.UseShellExecute        = $false
     $psi.CreateNoWindow         = $true
-    $psi.WindowStyle            = [System.Diagnostics.ProcessWindowStyle]::Hidden
     $psi.RedirectStandardInput  = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError  = $true
@@ -1231,27 +1270,32 @@ function Invoke-DiagnoseCheck {
     $p = $null
     try {
         $p = [System.Diagnostics.Process]::Start($psi)
-        # Đọc bất đồng bộ để exe không bị treo khi đầy bộ đệm
         $outTask = $p.StandardOutput.ReadToEndAsync()
         $errTask = $p.StandardError.ReadToEndAsync()
-        # Trả lời sẵn mọi yêu cầu "nhấn Enter / phím bất kỳ"
         try { $p.StandardInput.WriteLine(''); $p.StandardInput.Close() } catch { }
 
         $sw = [Diagnostics.Stopwatch]::StartNew()
-        $lastSize = -1; $stable = 0
+        $lastSize = -1; $stable = 0; $tick = 0
         while ($sw.Elapsed.TotalSeconds -lt 90) {
+            # Cứ 40ms ẩn mọi cửa sổ/hộp thoại của 40HXCheck.exe
+            [Cmp40Hx.WinHider]::HideAll($p.Id)
             [System.Windows.Forms.Application]::DoEvents()
-            Start-Sleep -Milliseconds 300
+            Start-Sleep -Milliseconds 40
+            $tick++
+
+            # Cứ ~320ms kiểm tra diagnose.txt một lần
+            if (($tick % 8) -ne 0) { continue }
             if (Test-Path -LiteralPath $diagPath -PathType Leaf) {
                 $item = Get-Item -LiteralPath $diagPath
                 if ($item.LastWriteTime -ge $started.AddSeconds(-2)) {
                     if ($item.Length -eq $lastSize -and $item.Length -gt 0) { $stable++ } else { $stable = 0 }
                     $lastSize = $item.Length
-                    if ($p.HasExited -or $stable -ge 5) { break }
+                    if ($p.HasExited -or $stable -ge 4) { break }
                 }
             }
             elseif ($p.HasExited) { break }
         }
+        [Cmp40Hx.WinHider]::HideAll($p.Id)
         if (-not $p.HasExited) { try { $p.Kill() } catch { } }
     }
     catch {
