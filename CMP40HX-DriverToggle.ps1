@@ -1114,8 +1114,6 @@ $script:UnlockerTranslations = [ordered]@{
     'Verify after reboot: double-click 40HXCheck.exe'        = 'Xác minh sau khi khởi động lại: chạy 40HXCheck.exe'
     'If test signing was just enabled'                       = 'Nếu vừa bật test signing'
     'Installation complete!'                                 = 'Cài đặt hoàn tất!'
-    'Success'                                                = 'Thành công'
-    'Done'                                                   = 'Hoàn tất'
 
     'Checking GPU hardware state'            = 'Đang kiểm tra trạng thái phần cứng GPU'
     'Unlock succeeded: Tensor at full power' = 'Mở khóa THÀNH CÔNG: Tensor Core hoạt động tối đa công suất'
@@ -1209,341 +1207,64 @@ function Get-Prop {
     return $Default
 }
 
-function Show-DiagnoseReportPopup {
-    $diagnosePath = Join-Path $env:LOCALAPPDATA '40HXUnlock\logs\diagnose.txt'
-
-    if (-not (Test-Path -LiteralPath $diagnosePath -PathType Leaf)) {
-        [System.Windows.Forms.MessageBox]::Show(
-            "Không tìm thấy tệp nhật ký chẩn đoán tại:`r`n$diagnosePath`r`n`r`nHãy chạy 40HXCheck.exe trước để khởi tạo báo cáo.",
-            'CMP 40HX - Báo cáo Chẩn đoán',
-            'OK',
-            'Warning'
-        ) | Out-Null
-        return
-    }
-
-    $rawText = Get-Content -LiteralPath $diagnosePath -Raw -Encoding UTF8
-
-    if ($rawText -match '(?s)(.*?)(?=---\s*Known limitations)') {
-        $cleanText = $Matches[1].Trim()
-    } else {
-        $cleanText = $rawText.Trim()
-    }
-
-    $lines = $cleanText -split '\r?\n'
-    $translatedLines = @()
-
-    foreach ($line in $lines) {
-        $t = $line
-
-        $t = $t -replace 'CMP 40HX Unlock Diagnostics', 'BÁO CÁO CHẨN ĐOÁN MỞ KHÓA CMP 40HX'
-        $t = $t -replace 'Unlock status\s*:\s*full compute \+ Gen2 reached', 'Trạng thái Mở khóa : ĐÃ MỞ KHÓA HOÀN TOÀN (Tensor + PCIe Gen2)'
-        $t = $t -replace 'Unlock status\s*:\s*full compute,\s*Gen2 not reached', 'Trạng thái Mở khóa : ĐÃ MỞ KHÓA TENSOR (Chưa đạt PCIe Gen2)'
-        $t = $t -replace 'Unlock status\s*:\s*not unlocked \(SS0 locked\)', 'Trạng thái Mở khóa : ✗ CHƯA MỞ KHÓA (SS0 Bị khóa)'
-        
-        $t = $t -replace 'Compute\s*:\s*✓ full', 'Tính toán Tensor   : ✓ TỐI ĐA CORES'
-        $t = $t -replace 'Compute\s*:\s*✗ locked.*', 'Tính toán Tensor   : ✗ BỊ KHÓA (SS0=0x00000000 SS1=0x00000000)'
-        $t = $t -replace 'PCIe\s*:\s*Gen2 \(5\.0 GT/s\) ×8', 'Tốc độ PCIe       : ✓ Gen2 (5.0 GT/s) ×8'
-        $t = $t -replace 'PCIe\s*:\s*Gen1 \(2\.5 GT/s\) ×8', 'Tốc độ PCIe       : ✗ Gen1 (2.5 GT/s) ×8 (Tốc độ mặc định)'
-        $t = $t -replace 'ReBAR\s*:\s*✓ enabled \(BAR1 8 GB\)', 'Bộ nhớ ReBAR      : ✓ ĐÃ BẬT (BAR1 8 GB)'
-        $t = $t -replace 'ReBAR\s*:\s*✗ not enabled.*', 'Bộ nhớ ReBAR      : ✗ CHƯA BẬT (BAR1 64 MB — Mở khóa ReBAR chưa có hiệu lực)'
-        
-        $t = $t -replace 'GPU 40HX:\s*✓', 'Nhận diện 40HX: ✓'
-        $t = $t -replace 'Secure Boot:\s*off \(OK\)', 'Secure Boot: TẮT (OK)'
-        $t = $t -replace 'GSP:\s*✓ enabled', 'GSP Firmware: ✓ Đã bật'
-        $t = $t -replace 'GSP:\s*✗ not enabled.*', 'GSP Firmware: ✗ Chưa bật'
-        $t = $t -replace 'Test signing:\s*off\s*\(not needed since v2\.5, recommend disabling\)', 'Test Signing: TẮT (Không cần thiết)'
-        $t = $t -replace 'Unlock EFI:\s*no Authenticode signature \(unsigned image\)', 'EFI Mở khóa : File EFI chưa ký chữ ký số (Bình thường)'
-        $t = $t -replace 'Unlock EFI:\s*not deployed on the ESP.*', 'EFI Mở khóa : Chưa triển khai trên ESP (Chưa mở khóa Tensor)'
-        $t = $t -replace 'Boot mode:\s*UEFI \(OK\)', 'Chế độ Boot : UEFI (OK)'
-        $t = $t -replace 'Fast Startup:\s*off \(OK\)', 'Fast Startup: TẮT (OK)'
-        $t = $t -replace 'PCIe ASPM:\s*off \(OK\)', 'PCIe ASPM   : TẮT (OK)'
-        $t = $t -replace 'Gen2 drivers:\s*ThrottleStop ✓ available\s*WinRing0 ✓ available', 'Driver Gen2 : ThrottleStop ✓ Có sẵn | WinRing0 ✓ Có sẵn'
-        
-        $t = $t -replace 'Gen2 task:\s*registered \(Ready, last result: 0\)', 'Tác vụ Gen2 : Đã đăng ký (Sẵn sàng, mã thoát lần cuối: 0)'
-        $t = $t -replace 'Gen2 task:\s*not registered.*', 'Tác vụ Gen2 : ✗ Chưa đăng ký tự khởi động'
-        $t = $t -replace 'Note: history from the last Gen2 task exists.*', 'Ghi chú: Lịch sử tác vụ Gen2 lần trước:'
-        $t = $t -replace '❌ Gen2 not run:\s*ThrottleStop driver not running.*', '❌ Tác vụ Gen2 không chạy: Driver ThrottleStop chưa khởi chạy (Hãy chạy lại bộ cài với quyền Administrator)'
-        $t = $t -replace 'Running as:\s*', 'Quyền thực thi: '
-
-        $t = $t -replace '>>> Unlock succeeded:\s*full Tensor \+ Gen2 ×8', '>>> KẾT LUẬN: MỞ KHÓA THÀNH CÔNG (TENSOR CORE TỐI ĐA + PCIE GEN2 X8)'
-        $t = $t -replace '>>> Full compute;\s*Gen2 not reached.*', '>>> KẾT LUẬN: TENSOR ĐÃ MỞ KHÓA — CHƯA ĐẠT PCIE GEN2 (HÃY BẤM [CHẠY GEN2 NGAY] TRÊN TOOL)'
-        $t = $t -replace '>>> Not unlocked this boot \(SS0 locked\)', '>>> KẾT LUẬN: CHƯA MỞ KHÓA TRONG LẦN BOOT NÀY (SS0 BỊ KHÓA)'
-        $t = $t -replace '\[EFI log\] The unlock EFI is not deployed.*', '  [Nhật ký EFI] File EFI mở khóa chưa được triển khai hoặc đã bị gỡ bỏ.'
-        $t = $t -replace 'Compute staying locked is expected.*', '  Tính toán Tensor bị khóa là bình thường. Hãy chạy Cài đặt đầy đủ để mở khóa.'
-
-        $t = $t -replace 'Suggestions:', 'Khuyên dùng / Khắc phục:'
-        $t = $t -replace '· GSP not enabled:.*', '· GSP chưa bật: Tích chọn [Bật GSP] và bấm [Cài đặt các mục đã chọn].'
-        $t = $t -replace '· EFI compute unlock not in effect.*', '· EFI mở khóa chưa triển khai: Tích chọn [Tạo EFI + mục khởi động firmware] rồi khởi động lại máy.'
-        $t = $t -replace '· The Gen2 scheduled task is not registered:.*', '· Tác vụ Gen2 chưa đăng ký: Bấm [Chạy Gen2 và cài tự khởi động] để đăng ký tự chạy khi đăng nhập.'
-        $t = $t -replace 'Gen2 target rate \(TLS\) is still Gen1:.*', '· Tốc độ PCIe mục tiêu (TLS) vẫn ở Gen1: Hãy bấm [Chạy Gen2 ngay bây giờ] tại mục ② trên phần mềm hoặc chạy lại Cài đặt đầy đủ.'
-
-        $t = $t -replace '========== Environment ==========', '========== MÔI TRƯỜNG HỆ THỐNG =========='
-        $t = $t -replace 'OS\s*:', 'Hệ điều hành  :'
-        $t = $t -replace 'Administrator\s*:\s*yes', 'Quyền Admin   : CÓ'
-        $t = $t -replace 'Tool version\s*:', 'Phiên bản Tool:'
-
-        $t = $t -replace '========== Drivers ==========', '========== TRẠNG THÁI DRIVER GEN2 =========='
-        $t = $t -replace 'service DEMAND/running', 'Dịch vụ: Đang chạy'
-        $t = $t -replace 'service DISABLED ⚠ disabled \(Gen2 cannot start; re-run the installer to fix\)', '⚠ DỊCH VỤ BỊ TẮT (Gen2 không thể khởi chạy; hãy chạy lại Cài đặt đầy đủ để sửa)'
-        $t = $t -replace 'no backup source \(never installed\)', 'Chưa có nguồn sao lưu (Chưa từng cài)'
-        $t = $t -replace 'backup source OK \(deployed before\)', 'Nguồn sao lưu: Tốt'
-        $t = $t -replace '↑ this diagnostic loaded it TEMPORARILY.*', '↑ Dịch vụ driver này chỉ được nạp TẠM THỜI để đo phần cứng'
-
-        $t = $t -replace '========== Raw PCIe registers \(40HX\) ==========', '========== THANH GHI PCIE PHẦN CỨNG =========='
-        $t = $t -replace 'MaxLinkSpeed=Gen1\(2\.5GT/s\)', 'Tốc độ tối đa=Gen1 (2.5 GT/s)'
-        $t = $t -replace 'MaxLinkSpeed=Gen2\(5GT/s\)', 'Tốc độ tối đa=Gen2 (5.0 GT/s)'
-        $t = $t -replace 'current=Gen1\(2\.5GT/s\) width=x8', 'Trạng thái hiện tại=Gen1 (2.5 GT/s) x8'
-        $t = $t -replace 'current=Gen2\(5GT/s\) width=x8', 'Trạng thái hiện tại=Gen2 (5.0 GT/s) x8'
-        $t = $t -replace 'target=Gen1\(2\.5GT/s\)', 'Mục tiêu=Gen1 (2.5 GT/s)'
-        $t = $t -replace 'target=Gen2\(5GT/s\)', 'Mục tiêu=Gen2 (5.0 GT/s)'
-        $t = $t -replace 'family=0x16 TU10x \(40HX OK\)', 'Kiến trúc TU10x (CMP 40HX Chuẩn)'
-
-        $translatedLines += $t
-    }
-
-    $finalReportText = $translatedLines -join [Environment]::NewLine
-
-    Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -AssemblyName System.Drawing
-
-    $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'Chi tiết Chẩn đoán Mở khóa CMP 40HX'
-    $form.Size = New-Object Drawing.Size(740, 580)
-    $form.StartPosition = 'CenterScreen'
-    $form.MinimizeBox = $false
-    $form.MaximizeBox = $true
-    $form.BackColor = [Drawing.Color]::FromArgb(241, 245, 249)
-
-    $txtBox = New-Object System.Windows.Forms.TextBox
-    $txtBox.Dock = 'Fill'
-    $txtBox.Multiline = $true
-    $txtBox.ReadOnly = $true
-    $txtBox.ScrollBars = 'Both'
-    $txtBox.WordWrap = $false
-    $txtBox.Font = New-Object Drawing.Font('Consolas', 9.5)
-    $txtBox.BackColor = [Drawing.Color]::White
-    $txtBox.ForeColor = [Drawing.Color]::FromArgb(15, 23, 42)
-    $txtBox.Text = $finalReportText
-    $form.Controls.Add($txtBox)
-
-    [void]$form.ShowDialog()
-}
-
-function Interpret-DiagnoseTxt {
-    $diagnosePath = Join-Path $env:LOCALAPPDATA '40HXUnlock\logs\diagnose.txt'
-    
-    if (-not (Test-Path -LiteralPath $diagnosePath -PathType Leaf)) {
-        Add-UnlockLog '[!] Không tìm thấy tệp diagnose.txt để phân tích.'
-        return
-    }
-
-    Add-UnlockLog '================ PHÂN TÍCH DIAGNOSE.TXT (TIẾNG VIỆT) ================'
-    $rawLines = Get-Content -LiteralPath $diagnosePath -Encoding UTF8
-
-    foreach ($line in $rawLines) {
-        if ([string]::IsNullOrWhiteSpace($line)) { continue }
-        $translatedLine = ConvertTo-TranslatedLog -Line $line
-        Add-UnlockLog "  • $translatedLine"
-    }
-
-    Add-UnlockLog '----------------------------------------------------------------------'
-    Add-UnlockLog '● TỔNG QUAN TRẠNG THÁI MỞ KHÓA:'
-
-    $rawText = $rawLines -join "`n"
-
-    if ($rawText -match 'SS0[=\s:]*(0x[0-9A-Fa-f]+|\d+)') {
-        $val =$Matches[1]
-        $isUnlocked =$false
-        if ($val -like '0x*') {
-            if ($val -ieq '0x88888888') { $isUnlocked =$true }
-        } else {
-            if ([long]$val -eq 2290649224) { $isUnlocked =$true }
-        }
-
-        if ($isUnlocked) {
-            Add-UnlockLog '  [✔] Tensor Core : Đã MỞ KHÓA TỐI ĐA (SS0 = 0x88888888)'
-        } else {
-            Add-UnlockLog "  [!] Tensor Core : Chưa mở khóa hoàn toàn (SS0 = $val)"
-        }
-    }
-
-    if ($rawText -match '(?i)GSP.*(enabled|active|1)') {
-        Add-UnlockLog '  [✔] GSP Firmware : Đã BẬT (EnableGpuFirmware = 1)'
-    }
-
-    if ($rawText -match '(?i)BAR1.*(8\s*GB|8192\s*MB)') {
-        Add-UnlockLog '  [✔] ReBAR (BAR1): Đã mở khóa 8 GB BAR1 thành công'
-    }
-
-    if ($rawText -match '(?i)PCIe.*(Gen2|5\.0\s*GT/s)') {
-        Add-UnlockLog '  [✔] PCIe Speed  : Đã đạt tốc độ Gen2 (5.0 GT/s)'
-    }
-
-    Add-UnlockLog '================================================----------------------'
-}
-
-function Invoke-Checker {
+function Invoke-DiagnoseCheck {
     if (-not (Test-Path -LiteralPath $script:CheckerExe -PathType Leaf)) {
         Add-UnlockLog "[!] Không tìm thấy: $($script:CheckerExe)"
-        return $null
+        return $false
     }
+    $diagPath = Join-Path $env:LOCALAPPDATA '40HXUnlock\logs\diagnose.txt'
+    Remove-Item -LiteralPath $diagPath -Force -ErrorAction SilentlyContinue
 
-    $outFile = Join-Path $env:TEMP ('40HX_chk_{0}.json' -f [guid]::NewGuid().ToString('N'))
-    $errFile = "$outFile.err"
+    Add-UnlockLog '== Đang chạy 40HXCheck.exe (chạy ẩn)... =='
+    $started = Get-Date
 
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName               = $script:CheckerExe
+    $psi.WorkingDirectory       = $script:UnlockerDir
+    $psi.UseShellExecute        = $false
+    $psi.CreateNoWindow         = $true
+    $psi.WindowStyle            = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $psi.RedirectStandardInput  = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+
+    $p = $null
     try {
-        Add-UnlockLog '== Đang kiểm tra phần cứng 40HX... =='
-        $p = Start-Process -FilePath $script:CheckerExe -ArgumentList '-json' `
-                -WorkingDirectory $script:UnlockerDir -WindowStyle Hidden -PassThru `
-                -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+        $p = [System.Diagnostics.Process]::Start($psi)
+        # Đọc bất đồng bộ để exe không bị treo khi đầy bộ đệm
+        $outTask = $p.StandardOutput.ReadToEndAsync()
+        $errTask = $p.StandardError.ReadToEndAsync()
+        # Trả lời sẵn mọi yêu cầu "nhấn Enter / phím bất kỳ"
+        try { $p.StandardInput.WriteLine(''); $p.StandardInput.Close() } catch { }
 
         $sw = [Diagnostics.Stopwatch]::StartNew()
-        while (-not $p.HasExited -and $sw.Elapsed.TotalSeconds -lt 60) {
+        $lastSize = -1; $stable = 0
+        while ($sw.Elapsed.TotalSeconds -lt 90) {
             [System.Windows.Forms.Application]::DoEvents()
-            Start-Sleep -Milliseconds 100
+            Start-Sleep -Milliseconds 300
+            if (Test-Path -LiteralPath $diagPath -PathType Leaf) {
+                $item = Get-Item -LiteralPath $diagPath
+                if ($item.LastWriteTime -ge $started.AddSeconds(-2)) {
+                    if ($item.Length -eq $lastSize -and $item.Length -gt 0) { $stable++ } else { $stable = 0 }
+                    $lastSize = $item.Length
+                    if ($p.HasExited -or $stable -ge 5) { break }
+                }
+            }
+            elseif ($p.HasExited) { break }
         }
-        if (-not $p.HasExited) {
-            try { $p.Kill() } catch { }
-            Add-UnlockLog '[!] 40HXCheck không phản hồi sau 60 giây, đã dừng.'
-            return $null
-        }
-        $p.WaitForExit()
-
-        $raw = if (Test-Path -LiteralPath $outFile) { Get-Content -LiteralPath $outFile -Raw -Encoding UTF8 } else { '' }
-        if ($raw -match '\{[\s\S]*\}') {
-            $report = $Matches[0] | ConvertFrom-Json
-            $report | Add-Member -NotePropertyName ExitCode -NotePropertyValue $p.ExitCode -Force
-            return $report
-        }
-        Add-UnlockLog '[!] Không đọc được kết quả từ 40HXCheck.'
-        return $null
+        if (-not $p.HasExited) { try { $p.Kill() } catch { } }
     }
     catch {
-        Add-UnlockLog "[!] Kiểm tra thất bại: $($_.Exception.Message)"
-        return $null
+        Add-UnlockLog "[!] Không chạy được 40HXCheck: $($_.Exception.Message)"
+        return $false
     }
-    finally {
-        Remove-Item -LiteralPath $outFile, $errFile -ErrorAction SilentlyContinue
+    finally { if ($p) { $p.Dispose() } }
+
+    if (-not (Test-Path -LiteralPath $diagPath -PathType Leaf)) {
+        Add-UnlockLog '[!] 40HXCheck không tạo ra diagnose.txt mới.'
+        return $false
     }
-}
-
-function Show-CheckReport {
-    param($r)
-
-    $text = @{
-        not_unlocked                    = 'Chưa mở khoá.'
-        driver_not_loaded               = 'Driver chưa nạp - không đo được gì.'
-        legacy_boot_no_efi              = 'Khởi động Legacy: EFI mở khoá không thể chạy. Hãy chuyển sang UEFI.'
-        secure_boot_blocks_unsigned_efi = 'Secure Boot đang chặn EFI mở khoá chưa ký. Hãy tắt trong BIOS.'
-        inconclusive                    = 'Kết quả chưa rõ ràng.'
-    }
-    $status = [string](Get-Prop (Get-Prop $r 'verdict') 'status' '')
-    $msg = if ($text.ContainsKey($status)) { $text[$status] } elseif ($status) { $status } else { 'Không rõ' }
-
-    $gsp   = [string](Get-Prop (Get-Prop $r 'gpu') 'gsp' '')
-    $efi   = [string](Get-Prop (Get-Prop $r 'firmware') 'unlock_efi_state' '')
-    $rb    = Get-Prop $r 'rebar'
-    $aspm  = [string](Get-Prop (Get-Prop $r 'pcie') 'aspm' '')
-
-    $rbText = if (-not (Get-Prop $rb 'measured' $false)) { 'chưa đo' }
-              elseif (Get-Prop $rb 'enabled' $false) { 'ĐÃ BẬT' } else { 'CHƯA BẬT' }
-    $gspText = if ($gsp -eq 'enabled') { 'ĐÃ BẬT' } elseif ($gsp) { 'CHƯA BẬT' } else { 'chưa rõ' }
-    $efiText = if ($efi -eq 'not_deployed') { 'chưa triển khai' } elseif ($efi) { 'đã triển khai' } else { 'chưa rõ' }
-    $aspmText = if ($aspm -eq 'on') { 'đang BẬT (nên tắt)' } elseif ($aspm) { 'đã tắt' } else { 'chưa rõ' }
-
-    Add-UnlockLog "[Kết luận] $msg (mã thoát $($r.ExitCode))"
-    Add-UnlockLog "  • GSP: $gspText   • ReBAR: $rbText   • EFI mở khoá: $efiText   • ASPM: $aspmText"
-
-    $lblState.Text = $msg
-}
-
-function Show-DiagnoseLogPopup {
-    $diagnosePath = Join-Path $env:LOCALAPPDATA '40HXUnlock\logs\diagnose.txt'
-
-    if (-not (Test-Path -LiteralPath $diagnosePath -PathType Leaf)) {
-        [System.Windows.Forms.MessageBox]::Show(
-            "Không tìm thấy tệp nhật ký chẩn đoán tại:`r`n$diagnosePath`r`n`r`nHãy chạy 40HXCheck.exe trước để khởi tạo tệp báo cáo.",
-            'CMP 40HX - Nhật ký Chẩn đoán',
-            'OK',
-            'Warning'
-        ) | Out-Null
-        return
-    }
-
-    try {
-        $rawLines = Get-Content -LiteralPath $diagnosePath -Encoding UTF8
-        $translatedLines = @()
-        foreach ($line in $rawLines) {
-            $translatedLines += (ConvertTo-TranslatedLog -Line $line)
-        }
-        $translatedText = $translatedLines -join [Environment]::NewLine
-
-        $dialog = New-Object System.Windows.Forms.Form
-        $dialog.Text = 'Nhật ký chẩn đoán chi tiết (diagnose.txt)'
-        $dialog.Size = New-Object Drawing.Size(680, 520)
-        $dialog.StartPosition = 'CenterParent'
-        $dialog.MinimizeBox = $false
-        $dialog.MaximizeBox = $true
-
-        $txtBox = New-Object System.Windows.Forms.TextBox
-        $txtBox.Dock = 'Fill'
-        $txtBox.Multiline = $true
-        $txtBox.ReadOnly = $true
-        $txtBox.ScrollBars = 'Both'
-        $txtBox.WordWrap = $false
-        $txtBox.Font = New-Object Drawing.Font('Consolas', 9)
-        $txtBox.BackColor = [Drawing.Color]::White
-        $txtBox.Text = $translatedText
-        $dialog.Controls.Add($txtBox)
-
-        [void]$dialog.ShowDialog()
-    }
-    catch {
-        [System.Windows.Forms.MessageBox]::Show(
-            "Không thể đọc tệp diagnose.txt: $($_.Exception.Message)",
-            'CMP 40HX',
-            'OK',
-            'Error'
-        ) | Out-Null
-    }
-}
-
-function Set-ComponentPreselect {
-    param($r)
-    $todo = @()
-
-    $chkGsp.Checked = ($r.gpu.gsp -ne 'enabled')
-    if ($chkGsp.Checked) { $todo += 'GSP' }
-
-    $chkEfi.Checked = ($r.firmware.unlock_efi_state -eq 'not_deployed')
-    if ($chkEfi.Checked) { $todo += 'EFI' }
-
-    if ($r.rebar.measured) {
-        $chkRebar.Checked = (-not $r.rebar.enabled)
-        if ($chkRebar.Checked) { $todo += 'ReBAR' }
-    }
-
-    $chkFastStart.Checked = [bool]$r.firmware.fast_startup
-    if ($chkFastStart.Checked) { $todo += 'Khởi động nhanh' }
-
-    $chkAspm.Checked = ($r.pcie.aspm -eq 'on')
-    if ($chkAspm.Checked) { $todo += 'ASPM' }
-
-    $chkAutostart.Checked = -not (Test-Gen2TaskExists)
-    if ($chkAutostart.Checked) { $todo += 'Tự khởi động đăng nhập' }
-
-    $chkDrivers.Checked = -not (Test-Gen2DriverBackup)
-    if ($chkDrivers.Checked) { $todo += 'Driver Gen2' }
-
-    try {
-        $plan = (& powercfg /getactivescheme) -join ' '
-        $chkHighPerf.Checked = ($plan -notmatch '8c5e7fda')
-        if ($chkHighPerf.Checked) { $todo += 'Chế độ hiệu năng cao' }
-    } catch { }
-
-    if ($todo.Count -gt 0) { Add-UnlockLog ('[i] Đã tự chọn: ' + ($todo -join ' / ')) }
-    else { Add-UnlockLog '[i] Mọi mục đo được đều đã sẵn sàng; không có gì cần chọn sẵn.' }
+    return $true
 }
 
 function Test-UnlockerInstalled {
@@ -1643,13 +1364,13 @@ $chkRebar     = New-Check 'Mở khóa Rebar (8 GB BAR1)'              50  70  $t
 $chkAutostart = New-Check 'Tự khởi động Gen2 khi đăng nhập'                 50  96  $true  300
 $chkAspm      = New-Check 'Power: tắt PCIe link power saving' 50  122 $false 300
 $chkDefender  = New-Check 'Tắt bảo vệ thời gian thực của WinDefender' 50 148 $true  300
-$chkEfi       = New-Check 'Tạo EFI + mục khởi độngfirmware'    380  44  $true  300
+$chkEfi       = New-Check 'Tạo EFI + mục khởi động firmware'    380  44  $true  300
 $chkDrivers   = New-Check 'Triển khai driver Gen2 + loại trừ Defender' 380 70 $true 300
 $chkFastStart = New-Check 'Power: tắt Fast Startup'          380  96  $false 300
 $chkHighPerf  = New-Check 'Power: bật High-performance plan'         380 122 $true  300
 
 $btnInstallSel = New-Object System.Windows.Forms.Button
-$btnInstallSel.Text = 'Cài đăt các mục đã chọn'
+$btnInstallSel.Text = 'Cài đặt các mục đã chọn'
 $btnInstallSel.Location = New-Object Drawing.Point(12, 194)
 $btnInstallSel.Size = New-Object Drawing.Size(330, 28)
 $btnInstallSel.Add_Click({
@@ -1749,6 +1470,266 @@ $btnFull.Add_Click({
     finally { & $setBusy $false }
 })
 $grp1.Controls.Add($btnFull)
+
+function Show-VietnameseCheckSummary {
+    param()
+
+    # ---------- đọc diagnose.txt (bỏ phần "Known limitations") ----------
+    $diagPath = Join-Path $env:LOCALAPPDATA '40HXUnlock\logs\diagnose.txt'
+    $raw = ''
+    $body = ''
+    if (Test-Path -LiteralPath $diagPath -PathType Leaf) {
+        $raw = Get-Content -LiteralPath $diagPath -Raw -Encoding UTF8
+        $cut = $raw.IndexOf('--- Known limitations')
+        $body = if ($cut -ge 0) { $raw.Substring(0, $cut) } else { $raw }
+    }
+
+    $status = ''
+
+    $statusLine = ''
+    if ($body -match '(?im)^\s*Unlock status\s*:\s*(.+?)\s*$') { $statusLine = $Matches[1] }
+
+    $stamp = ''
+    if ($raw -match 'Diagnostics\s+v[\d.]+\s+([\d-]+ [\d:]+)') { $stamp = $Matches[1] }
+
+    $ss0 = ''; $ss1 = ''
+    if ($body -match 'SS0=(0x[0-9A-Fa-f]+)') { $ss0 = $Matches[1] }
+    if ($body -match 'SS1=(0x[0-9A-Fa-f]+)') { $ss1 = $Matches[1] }
+    $ssText = ''
+    if ($ss0) { $ssText = " (SS0 = $ss0" + $(if ($ss1) { ", SS1 = $ss1" } else { '' }) + ')' }
+
+    $pcieText = 'chưa đo được'
+    if ($body -match '(?im)^\s*PCIe\s*:\s*Gen(\d)\s*\(([\d.]+)\s*GT/s\)\s*\S?\s*(\d+)') {
+        $pcieText = "Gen$($Matches[1]) ($($Matches[2]) GT/s) x$($Matches[3])"
+    }
+
+    $bar1 = ''
+    if ($body -match '(?im)^\s*ReBAR\s*:.*?BAR1\s+(\d+\s*[MG]B)') { $bar1 = ($Matches[1] -replace '\s+', ' ') }
+
+    # ---------- suy ra trạng thái ----------
+    $tensorOk   = ($statusLine -match '^full compute') -or ($ss0 -ieq '0x88888888')
+    $gen2Ok     = ($statusLine -match 'Gen2 reached')
+    $rebarOk    = ($body -match '(?im)^\s*ReBAR\s*:\s*\S\s*enabled')
+    $gspOk      = ($body -match 'GSP:\s*\S\s*enabled')
+    $efiOk      = ($body -ne '') -and -not ($body -match '(?im)^\s*Unlock EFI:\s*not deployed')
+    $taskOk     = ($body -match '(?im)^\s*Gen2 task:\s*registered')
+    $taskRun    = ($body -match '(?im)^\s*Gen2 task:\s*registered\s*\(Running')
+    $drvDisable = ($body -match 'service DISABLED')
+    $secureOff  = ($body -match 'Secure Boot:\s*off')
+    $legacyBoot = ($body -match '(?im)^\s*Boot mode:\s*(?!UEFI)')
+    $fastOn     = ($body -match 'Fast Startup:\s*on')
+    $aspmOn     = ($body -match 'PCIe ASPM:\s*on')
+
+    # Trường hợp 4: không đo được (driver Gen2 không nạp được)
+    $cannotMeasure = ($statusLine -match '(?i)cannot measure|driver not ready') -or ($status -eq 'driver_not_loaded')
+    $drvMissing    = ($body -match 'System32 missing')
+    $drvStartFail  = ($body -match 'start failed')
+    $reachedBefore = ($body -match 'Gen2 was reached before')
+
+    $rowUnk = {
+        param($label, $value)
+        '  • – {0}: {1}' -f $label, $value
+    }
+
+    $row = {
+        param($ok, $label, $value)
+        '  • {0} {1}: {2}' -f $(if ($ok) { '✔' } else { '✘' }), $label, $value
+    }
+
+    $L = New-Object System.Collections.Generic.List[string]
+
+    # =====================================================================
+    # TRƯỜNG HỢP 3: Mở khóa thành công (Tensor + Gen2)
+    # =====================================================================
+    if ($tensorOk -and $gen2Ok) {
+        $icon  = 'Information'
+        $title = 'CMP 40HX - Kết quả kiểm tra: THÀNH CÔNG'
+        $L.Add('☑ Kiểm tra hoàn tất! Mở khóa THÀNH CÔNG: Tensor hoạt động tối đa + PCIe Gen2.')
+        $L.Add('')
+        $L.Add('Kết quả chi tiết:')
+        $L.Add((& $row $true  'Tensor Core' "ĐÃ MỞ KHÓA$ssText"))
+        $L.Add((& $row $true  'PCIe'        $pcieText))
+        $L.Add((& $row $rebarOk 'ReBAR'     $(if ($bar1) { "đã bật (BAR1 $bar1)" } else { 'đã bật' })))
+        $L.Add((& $row $gspOk 'GSP Firmware' $(if ($gspOk) { 'đã bật' } else { 'chưa bật' })))
+        $L.Add((& $row $taskOk 'Tác vụ Gen2 tự khởi động' $(if ($taskOk) { 'đã đăng ký' } else { 'chưa đăng ký' })))
+        $L.Add('')
+        $L.Add('Lưu ý:')
+        $L.Add('  • Không cần thực hiện thêm thao tác nào')
+        $L.Add('  • PCIe Gen2 sẽ tự động chạy ẩn sau mỗi lần đăng nhập')
+        $L.Add('  • Khi máy rảnh, PCIe có thể hạ xuống Gen1 để tiết kiệm điện — đây là bình thường,')
+        $L.Add('    liên kết sẽ trở lại Gen2 khi GPU chịu tải')
+        if (-not $taskOk) {
+            $L.Add('  • Tác vụ tự khởi động chưa đăng ký: sau khi khởi động lại, Gen2 sẽ KHÔNG tự mở.')
+            $L.Add('    Hãy bấm "Chạy Gen2 và cài tự khởi động" ở tab Quản lý Unlocker')
+        }
+        $L.Add("(Báo cáo lúc $stamp)")
+    }
+    # =====================================================================
+    # TRƯỜNG HỢP 2: Tensor đã mở khóa nhưng chưa đạt Gen2
+    # =====================================================================
+    elseif ($tensorOk) {
+        $icon  = 'Warning'
+        $title = 'CMP 40HX - Kết quả kiểm tra: CHƯA ĐẠT GEN2'
+        $L.Add('⚠ Kiểm tra hoàn tất: Tensor đã mở khóa nhưng PCIe CHƯA lên Gen2.')
+        $L.Add('')
+        $L.Add('Kết quả chi tiết:')
+        $L.Add((& $row $true  'Tensor Core' "ĐÃ MỞ KHÓA$ssText"))
+        $L.Add((& $row $false 'PCIe'        "$pcieText — đang ở tốc độ mặc định Gen1"))
+        $L.Add((& $row $rebarOk 'ReBAR'     $(if ($rebarOk) { if ($bar1) { "đã bật (BAR1 $bar1)" } else { 'đã bật' } } else { 'chưa bật' })))
+        $L.Add((& $row $gspOk 'GSP Firmware' $(if ($gspOk) { 'đã bật' } else { 'chưa bật' })))
+        $L.Add((& $row $taskOk 'Tác vụ Gen2 tự khởi động' $(if ($taskRun) { 'đã đăng ký (đang chạy)' } elseif ($taskOk) { 'đã đăng ký' } else { 'chưa đăng ký' })))
+        $L.Add((& $row (-not $drvDisable) 'Driver Gen2 (ThrottleStop)' $(if ($drvDisable) { 'dịch vụ đang BỊ TẮT' } else { 'bình thường' })))
+
+        $L.Add('')
+        $L.Add('Cần làm tiếp:')
+        $n = 0
+        if ($drvDisable) {
+            $n++; $L.Add("  $n. Dịch vụ driver Gen2 đang bị tắt nên Gen2 không thể khởi chạy:")
+            $L.Add('     vào tab "Quản lý Unlocker", bấm "Cài đặt toàn bộ" để sửa')
+        }
+        $n++; $L.Add("  $n. Bấm `"Chạy Gen2 ngay bây giờ`" (phương án Stage2 sẽ tự dùng nếu đã bật)")
+        if ($taskRun) {
+            $n++; $L.Add("  $n. Tác vụ Gen2 lúc đăng nhập vẫn đang chạy — hãy đợi khoảng 1-2 phút rồi kiểm tra lại")
+        }
+        if (-not $taskOk) {
+            $n++; $L.Add("  $n. Bấm `"Chạy Gen2 và cài tự khởi động`" để Gen2 tự mở sau mỗi lần đăng nhập")
+        }
+        if ($aspmOn -or $fastOn) {
+            $n++; $L.Add("  $n. Tắt Fast Startup / PCIe link power saving rồi bấm `"Cài đặt các mục đã chọn`"")
+        }
+        $n++; $L.Add("  $n. Nếu vẫn ở Gen1: bấm `"Chạy 40HXCheck.exe`" lại sau khi GPU chạy có tải")
+        $L.Add('')
+        $L.Add('Lưu ý:')
+        $L.Add('  • Không phải lỗi phần cứng. KHÔNG nạp lại (flash) VBIOS của card')
+        $L.Add('  • Driver có thể ghi đè chính sách liên kết về Gen1 khi máy rảnh')
+        $L.Add("(Báo cáo lúc $stamp)")
+    }
+
+    # =====================================================================
+    # TRƯỜNG HỢP 4: Không đo được (driver Gen2 chưa sẵn sàng)
+    # =====================================================================
+    elseif ($cannotMeasure) {
+        $icon  = 'Warning'
+        $title = 'CMP 40HX - Kết quả kiểm tra: KHÔNG ĐO ĐƯỢC'
+        $L.Add('⚠ Kiểm tra hoàn tất: KHÔNG đo được trạng thái mở khóa (driver chưa sẵn sàng).')
+        $L.Add('Công cụ cần nạp driver ThrottleStop / WinRing0 để đọc phần cứng nhưng việc này chưa thực hiện được.')
+        $L.Add('Kết quả bên dưới chưa phải kết luận GPU đã hay chưa được mở khóa.')
+        $L.Add('')
+        $L.Add('Kết quả chi tiết:')
+        $L.Add((& $rowUnk 'Tensor Core' 'không đọc được'))
+        $L.Add((& $rowUnk 'PCIe'        'không đọc được'))
+        $L.Add((& $rowUnk 'ReBAR'       'không đọc được'))
+        $L.Add((& $row $gspOk 'GSP Firmware' $(if ($gspOk) { 'đã bật' } else { 'chưa bật' })))
+        $L.Add((& $row $efiOk 'EFI mở khóa'  $(if ($efiOk) { 'đã triển khai' } else { 'chưa triển khai trên phân vùng ESP' })))
+        $L.Add((& $row (-not $drvMissing -and -not $drvStartFail) 'Driver Gen2 (ThrottleStop / WinRing0)' $(
+            if ($drvMissing) { 'thiếu tệp .sys / chưa đăng ký dịch vụ' }
+            elseif ($drvStartFail) { 'không khởi chạy được' }
+            else { 'chưa sẵn sàng' })))
+        $L.Add((& $row $taskOk 'Tác vụ Gen2 tự khởi động' $(if ($taskOk) { 'đã đăng ký' } else { 'chưa đăng ký' })))
+
+        $L.Add('')
+        $L.Add('Cần làm tiếp:')
+        $n = 0
+        if ($drvMissing -or -not $taskOk -or -not $gspOk -or -not $efiOk) {
+            $n++; $L.Add("  $n. Vào tab `"Quản lý Unlocker`", bấm `"Cài đặt toàn bộ`" để triển khai lại driver Gen2")
+        }
+        if ($drvStartFail) {
+            $n++; $L.Add("  $n. Nếu dùng phần mềm diệt virus bên thứ ba: cho phép (allow) hai tệp")
+            $L.Add('     ThrottleStop.sys và WinRing0x64.sys trong danh sách tin cậy, rồi thử lại')
+            $n++; $L.Add("  $n. Kiểm tra Windows Security: tệp .sys có bị cách ly (Protection history) không")
+        }
+        $n++; $L.Add("  $n. Bấm `"Chạy 40HXCheck.exe`" lại để kiểm tra")
+        if ($efiOk -eq $false -or -not $gspOk) {
+            $n++; $L.Add("  $n. Sau khi cài đặt toàn bộ, khởi động lại máy rồi kiểm tra lần nữa")
+        }
+        $L.Add('')
+        $L.Add('Lưu ý:')
+        if ($reachedBefore) {
+            $L.Add('  • Nhật ký cho thấy Gen2 từng đạt được trước đây — bản mở khóa có thể vẫn đang có hiệu lực,')
+            $L.Add('    chỉ là lần kiểm tra này không đọc được phần cứng')
+        }
+        $L.Add('  • Tình trạng này là bình thường nếu bạn vừa gỡ cài đặt bản mở khóa')
+        $L.Add('  • Nếu vẫn lỗi, hãy gửi diagnose.txt và %TEMP%\40HX_installer.log cho tác giả')
+        $L.Add("(Báo cáo lúc $stamp)")
+    }
+
+    # =====================================================================
+    # TRƯỜNG HỢP 1: Chưa mở khóa (SS0 bị khóa)
+    # =====================================================================
+    else {
+        $icon  = 'Warning'
+        $title = 'CMP 40HX - Kết quả kiểm tra: CHƯA MỞ KHÓA'
+        $L.Add('⚠ Kiểm tra hoàn tất: GPU CHƯA được mở khóa.')
+
+        $why = switch ($status) {
+            'driver_not_loaded'               { 'Driver chưa nạp nên không đo được phần cứng.' }
+            'legacy_boot_no_efi'              { 'Máy đang khởi động Legacy: EFI mở khóa không thể chạy. Hãy chuyển sang UEFI.' }
+            'secure_boot_blocks_unsigned_efi' { 'Secure Boot đang chặn tệp EFI mở khóa chưa ký. Hãy tắt trong BIOS.' }
+            default {
+                if ($efiOk) { 'Tensor vẫn bị khóa dù EFI đã triển khai: có thể máy chưa khởi động qua mục "40HX Unlock".' }
+                else        { 'Tensor đang bị khóa. Đây là bình thường nếu chưa cài hoặc đã gỡ bản mở khóa.' }
+            }
+        }
+        $L.Add($why)
+        $L.Add('')
+        $L.Add('Kết quả chi tiết:')
+        $L.Add((& $row $false 'Tensor Core' "BỊ KHÓA$ssText"))
+        $L.Add((& $row $false 'PCIe'        "$pcieText — tốc độ mặc định"))
+        $L.Add((& $row $rebarOk 'ReBAR'     $(if ($rebarOk) { 'đã bật' } else { if ($bar1) { "chưa bật (BAR1 $bar1)" } else { 'chưa bật' } })))
+        $L.Add((& $row $gspOk 'GSP Firmware' $(if ($gspOk) { 'đã bật' } else { 'chưa bật' })))
+        $L.Add((& $row $efiOk 'EFI mở khóa'  $(if ($efiOk) { 'đã triển khai' } else { 'chưa triển khai trên phân vùng ESP' })))
+        $L.Add((& $row $taskOk 'Tác vụ Gen2 tự khởi động' $(if ($taskOk) { 'đã đăng ký' } else { 'chưa đăng ký' })))
+        $L.Add((& $row $secureOff 'Secure Boot' $(if ($secureOff) { 'đã tắt' } else { 'đang BẬT (nên tắt)' })))
+
+        $L.Add('')
+        $L.Add('Cần làm tiếp:')
+        $n = 0
+        if (-not $efiOk -or -not $gspOk -or -not $taskOk -or -not $rebarOk) {
+            $n++; $L.Add("  $n. Vào tab `"Quản lý Unlocker`", bấm `"Cài đặt toàn bộ`"")
+            $n++; $L.Add("  $n. Khởi động lại máy")
+            $L.Add('     • Màn hình đen / log chữ 40HX trong 10-30 giây là bình thường (đang mở khóa)')
+            $n++; $L.Add("  $n. Sau khi vào Windows, bấm `"Chạy 40HXCheck.exe`" để kiểm tra lại")
+        }
+        if ($efiOk) {
+            $L.Add('')
+            $L.Add('Nếu máy vào thẳng Windows sau khi khởi động lại (không thấy chạy mở khóa), hãy vào BIOS (phím Del/F2):')
+            $L.Add('  1. Tắt Secure Boot (bắt buộc đối với tệp EFI mở khóa chưa ký)')
+            $L.Add('  2. Tắt Fast Boot (Khởi động nhanh)')
+            $L.Add("  3. Chọn '40HX Unlock' làm mục khởi động ưu tiên 1")
+            $L.Add('     (nếu danh sách chỉ hiện Windows Boot Manager, hãy tắt CSM và kiểm tra lại)')
+            $L.Add('  4. Bật Above 4G Decoding và Re-Size BAR')
+        }
+        $L.Add("(Báo cáo lúc $stamp)")
+    }
+
+    [System.Windows.Forms.MessageBox]::Show(($L -join "`r`n"), $title, 'OK', $icon) | Out-Null
+}
+
+function Show-VietnameseUninstallSummary {
+    $msg = @"
+☑ Hoàn tất gỡ cài đặt! Bản mở khóa 40HX đã được gỡ khỏi hệ thống.
+
+Đã gỡ bỏ:
+  • Tác vụ đã lên lịch và tự khởi động Gen2
+  • Mục khởi động firmware và tệp EFI trên phân vùng ESP
+  • Driver Gen2 và danh sách loại trừ Defender
+  • Thiết lập GSP (EnableGpuFirmware)
+
+Lưu ý:
+  • Cài đặt nguồn điện (Fast Startup, ASPM, High-performance) KHÔNG được khôi phục
+  • Hãy khởi động lại máy để mọi thay đổi có hiệu lực
+  • Sau khi khởi động lại, Tensor sẽ trở về trạng thái bị khóa — đây là bình thường
+
+Nếu vẫn thấy mục '40HX Unlock' trong danh sách khởi động của BIOS (Phím Del/F2):
+  1. Chọn Windows Boot Manager làm mục khởi động ưu tiên 1
+  2. Xóa mục '40HX Unlock' nếu BIOS cho phép
+
+Sau khi khởi động lại vào hệ thống:
+  • Bấm nút "Chạy 40HXCheck.exe" để xác nhận đã gỡ sạch
+  • Có thể sang tab "Chuyển driver" để chuyển sang chế độ chơi game
+"@
+    [System.Windows.Forms.MessageBox]::Show($msg, 'CMP 40HX - Hoàn tất gỡ cài đặt', 'OK', 'Information') | Out-Null
+}
 
 # ---------- 2. Gen2 policy ----------
 $grp2 = New-Object System.Windows.Forms.GroupBox
@@ -1856,14 +1837,12 @@ $btnCheck.Add_Click({
     & $setBusy $true
     try {
         $lblState.Text = 'Đang kiểm tra phần cứng...'
-        $r = Invoke-Checker
-        if ($r) {
-            Show-CheckReport $r
-            Set-ComponentPreselect $r
+        if (Invoke-DiagnoseCheck) {
+            $lblState.Text = 'Đã kiểm tra xong — xem kết quả.'
+            Show-VietnameseCheckSummary
         } else {
-            $lblState.Text = 'Hoàn tất kiểm tra — xem log hoạt động.'
+            $lblState.Text = 'Kiểm tra thất bại — xem log hoạt động.'
         }
-        Show-DiagnoseReportPopup
     }
     finally { & $setBusy $false }
 })
@@ -1891,7 +1870,7 @@ $btnUninstall.Add_Click({
     & $setBusy $true
     try {
         Add-UnlockLog '== Gỡ cài đặt =='
-        Invoke-Installer -ExePath $script:UninstallerExe
+        Invoke-Installer -Arguments @('-y') -ExePath $script:UninstallerExe
         Add-UnlockLog '== Gỡ cài đặt xong. Nên khởi động lại máy. =='
 
         try {
@@ -1906,7 +1885,7 @@ $btnUninstall.Add_Click({
             }
         }
         catch { Add-UnlockLog "[i] Không thể kiểm tra/khôi phục Defender: $($_.Exception.Message)" }
-
+        Show-VietnameseUninstallSummary
         Add-UnlockLog '[i] Bấm "Chạy 40HXCheck.exe" để xác nhận trạng thái sau khi khởi động lại.'
     }
     finally { & $setBusy $false }
@@ -2312,10 +2291,10 @@ $btnSetGl.Add_Click({
         [System.Windows.Forms.MessageBox]::Show("GPU '$($a.Description)' không có sẵn OpenGL ICD, không thể đặt làm mặc định.", 'CMP 40HX', 'OK', 'Warning') | Out-Null
         return
     }
-    $confirm = [System.Windows.Forms.MessageBox]::Show(
+    $answer = [System.Windows.Forms.MessageBox]::Show(
         "Đặt '$($a.Description)' làm ICD OpenGL mặc định?`r`nCần khởi động lại máy để có hiệu lực.",
         'CMP 40HX', 'YesNo', 'Question')
-    if ($confirm -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+    if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
     try {
         Set-DefaultGlGpu -Adapters $script:DefaultGpuAdapters -Chosen $a
         $defStatus.Text = "● Đã đặt '$($a.Description)' làm ICD OpenGL mặc định. Hãy khởi động lại máy."
@@ -3057,9 +3036,7 @@ function Invoke-DrvPrepare {
     # Refresh status and enable UI tabs upon completion
     $stFinal = Get-DrvStatus
     Show-DrvStatus $stFinal
-    if (Get-Command Refresh-UiState -ErrorAction SilentlyContinue) { 
-        try { Refresh-UiState -KeepStatus } catch { } 
-    }
+    try { Update-UiState -KeepStatus } catch { }
 
     if ($errors -eq 0) {
         Set-DrvProgress 100
@@ -3355,7 +3332,6 @@ $form.Controls.Add($tabs)
         Set-ProgressValue -Value $To -Message $Message
     }
     }
-    Set-Alias -Name Animate-Progress -Value Show-ProgressAnimation -Scope Script
 
     function Update-UiState {
     param([switch]$KeepStatus)
@@ -3493,11 +3469,11 @@ $form.Controls.Add($tabs)
             $toggle.Enabled = $false
             $settingsButton.Enabled = $false
             $refreshButton.Enabled = $false
-            Animate-Progress -From 20 -To 35 -Message '● Đang xác thực INF đã chọn...'
-            Animate-Progress -From 40 -To 60 -Message "● Đang chuyển sang driver $profileName..."
+            Show-ProgressAnimation -From 20 -To 35 -Message '● Đang xác thực INF đã chọn...'
+            Show-ProgressAnimation -From 40 -To 60 -Message "● Đang chuyển sang driver $profileName..."
 
             $result = Install-CmpDriver -ProfileName $profileName -InfPath $infPath -InstallMode $installMode -ModelName $modelName
-            Animate-Progress -From 65 -To 90 -Message '● Đang xác nhận trạng thái driver mới...'
+            Show-ProgressAnimation -From 65 -To 90 -Message '● Đang xác nhận trạng thái driver mới...'
             Update-UiState -KeepStatus
             $operationSucceeded = $true
             if ($result.RebootRequired) {
@@ -3526,7 +3502,7 @@ $form.Controls.Add($tabs)
         }
 
         if ($operationSucceeded) {
-            Animate-Progress -From 95 -To 100 -Message '● Hoàn tất chuyển driver'
+            Show-ProgressAnimation -From 95 -To 100 -Message '● Hoàn tất chuyển driver'
             $status.Text = "● Đã chuyển sang $profileName - $($result.Device.Version)"
             $status.ForeColor = $green
         }
