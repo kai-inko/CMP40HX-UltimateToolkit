@@ -108,7 +108,7 @@ Ví dụ từ máy kiểm thử của người dùng (không phải tên file b�
 
 ## Cập nhật 16/10/2026
 - Thông tin chi tiết nằm trong bản cập nhật 1.9.0 và 1.9.1.
-- Các cập nhật sẽ được up lên từ hàng tuần sang hàng tháng.
+- Lịch trình cập nhật sẽ thay đổi từ hàng tuần sang hàng tháng.
 
 ## Cập nhật 12/10/2026
 - Đã thành công sửa lỗi WSH compilation error 800A0408 của VBScript.
