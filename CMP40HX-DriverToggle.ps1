@@ -2409,23 +2409,8 @@ $lblUnlocker.Size     = New-Object Drawing.Size(670, 20)
 $lblUnlocker.Text     = 'Unlocker: chưa kiểm tra'
 $grpDrv.Controls.Add($lblUnlocker)
 
-$lblPkg = New-Object System.Windows.Forms.Label
-$lblPkg.Location = New-Object Drawing.Point(14, 106)
-$lblPkg.Size     = New-Object Drawing.Size(110, 22)
-$lblPkg.Text     = 'Gói NVIDIA gốc:'
-$grpDrv.Controls.Add($lblPkg)
-
-$cmbPkg = New-Object System.Windows.Forms.ComboBox
-$cmbPkg.DropDownStyle = 'DropDownList'
-$cmbPkg.Location = New-Object Drawing.Point(126, 103)
-$cmbPkg.Size     = New-Object Drawing.Size(150, 24)
-[void]$cmbPkg.Items.Add('Desktop')
-[void]$cmbPkg.Items.Add('Notebook')
-$cmbPkg.SelectedIndex = 0
-$grpDrv.Controls.Add($cmbPkg)
-
 $chkNvenc = New-Object System.Windows.Forms.CheckBox
-$chkNvenc.Location = New-Object Drawing.Point(300, 104)
+$chkNvenc.Location = New-Object Drawing.Point(14, 104)
 $chkNvenc.Size     = New-Object Drawing.Size(380, 24)
 $chkNvenc.Text     = 'Ưu tiên bản patch NVENC-NvFBC (nếu có)'
 $chkNvenc.Checked  = $true
@@ -2508,10 +2493,8 @@ function Set-DrvProgress {
 }
 
 function Set-DrvBusy {
-    param([bool]$Busy)
-    foreach ($c in @($btnDrvPrepare, $btnOnlyUnlocker, $cmbPkg, $chkNvenc, $btnUpdate)) { 
-        if ($c) { $c.Enabled = -not $Busy } 
-    }
+    param([bool]$Busy) 
+        if ($c) { $c.Enabled = -not $Busy }
 }
 
 # ---------- helpers: HTTP ----------
@@ -2690,7 +2673,7 @@ function Get-DrvStatus {
     $dartCands = @()
     if ($script:Config.WorkDirectory) { $dartCands += [string]$script:Config.WorkDirectory }
     $dartCands += @(Get-ChildItem -LiteralPath $script:AppDirectory -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^\d{3}\.\d+-.*win' } | Select-Object -ExpandProperty FullName)
+        Where-Object { $_.Name -match '^\d{3}\.\d+-desktop-.*win' } | Select-Object -ExpandProperty FullName)
     $fixCands = @($drvFixFolder)
     if ($script:Config.GameDirectory) { $fixCands += [string]$script:Config.GameDirectory }
 
@@ -2785,20 +2768,17 @@ function Get-DartraidenRelease {
 }
 
 function Resolve-NvidiaUrl {
-    param([string]$Ver, [string]$PreferredKind)
-    $kinds = if ($PreferredKind -eq 'desktop') { @('desktop', 'notebook') } else { @('notebook', 'desktop') }
-    foreach ($k in $kinds) {
-        $url = "https://us.download.nvidia.com/Windows/$Ver/$Ver-$k-win10-win11-64bit-international-dch-whql.exe"
-        try {
-            $req = New-DrvRequest $url
-            $req.Method = 'HEAD'
-            $r = $req.GetResponse(); $r.Close()
-            if ($k -ne $PreferredKind) { Add-DrvLog "  [!] Không có gói $PreferredKind, dùng gói $k." }
-            return $url
-        }
-        catch { Add-DrvLog "  - Gói $k không tải được: $($_.Exception.Message)" }
+    param([string]$Ver)
+    $url = "https://us.download.nvidia.com/Windows/$Ver/$Ver-desktop-win10-win11-64bit-international-dch-whql.exe"
+    try {
+        $req = New-DrvRequest $url
+        $req.Method = 'HEAD'
+        $r = $req.GetResponse(); $r.Close()
+        return $url
     }
-    throw "Không tìm thấy gói driver NVIDIA $Ver trên us.download.nvidia.com."
+    catch {
+        throw "Không tìm thấy gói driver NVIDIA Desktop $Ver trên us.download.nvidia.com: $($_.Exception.Message)"
+    }
 }
 
 function Find-PatchRoot {
@@ -2918,8 +2898,7 @@ function Install-DartraidenDriver {
     Add-DrvLog "  Chọn: $($rel.AssetName)  (NVENC: $($rel.IsNvenc))"
     if ($chkNvenc.Checked -and -not $rel.IsNvenc) { Add-DrvLog 'Không tìm thấy bản patch NVENC, chuyển sang tải bản thường' }
 
-    $kind = if ($cmbPkg.SelectedIndex -eq 1) { 'desktop' } else { 'notebook' }
-    $nvUrl = Resolve-NvidiaUrl -Ver $rel.Tag -PreferredKind $kind
+    $nvUrl = Resolve-NvidiaUrl -Ver $rel.Tag
     $nvFile = [IO.Path]::GetFileName($nvUrl)
     Add-DrvLog "  Gói NVIDIA: $nvUrl"
     $nvExe  = Join-Path $drvDownloadDir $nvFile
@@ -3148,7 +3127,7 @@ function Get-LocalPatchedVersion {
     # Phiên bản cao nhất trong các thư mục "NNN.NN-...win..." đã được patch (có INF DEV_1F0B)
     $best = $null
     $dirs = @(Get-ChildItem -LiteralPath $script:AppDirectory -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^\d{3}\.\d+-.*win' })
+        Where-Object { $_.Name -match '^\d{3}\.\d+-desktop-.*win' })
     foreach ($d in $dirs) {
         if ($d.Name -notmatch '^(\d{3}\.\d+)-') { continue }
         $v = [version]$Matches[1]
